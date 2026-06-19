@@ -15,29 +15,12 @@ export function DownloadPage() {
     settings, setSettings, setCurrentDownload,
   } = useAppStore();
 
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [showToast, setShowToast] = useState(false);
 
   useEffect(() => {
-    const unlistenProgress = listen<string>('download-progress', (event) => {
-      const line = event.payload;
-      const match1 = line.match(/\[download\]\s+(\d+\.?\d*)%\s+of\s+~?(\d+\.?\d*\w+)\s+at\s+(\d+\.?\d*\w+\/s)\s+ETA\s+(\S+)/);
-      const match2 = line.match(/\[download\]\s+(\d+\.?\d*)%\s+of\s+~?(\d+\.?\d*\w+)(?:\s*,?\s*ETA\s+(\S+))?/);
-      const match3 = line.match(/\[download\]\s+100%\s+of\s+(\d+\.?\d*\w+)/);
-
-      if (match1) {
-        setDownloadProgress({ status: 'downloading', percent: parseFloat(match1[1]), downloaded: '', total: match1[2], speed: match1[3], eta: match1[4] });
-      } else if (match2) {
-        setDownloadProgress({ status: 'downloading', percent: parseFloat(match2[1]), downloaded: '', total: match2[2], speed: '-', eta: match2[3] || '-' });
-      } else if (match3) {
-        setDownloadProgress({ status: 'downloading', percent: 100, downloaded: match3[1], total: match3[1], speed: '-', eta: '00:00' });
-      }
-    });
-
     const unlistenComplete = listen<string>('download-complete', () => {
       setShowToast(true);
-      // 从 store 获取最新状态（避免闭包问题）
       const state = useAppStore.getState();
       const vi = state.videoInfo;
       const sf = state.selectedFormat;
@@ -53,7 +36,6 @@ export function DownloadPage() {
         });
       }
       setTimeout(() => {
-        setDownloadProgress(null);
         setIsDownloading(false);
         setShowToast(false);
       }, 3000);
@@ -114,7 +96,7 @@ export function DownloadPage() {
 
   const handleDownload = async () => {
     if (!currentUrl || !selectedFormat) return;
-    setIsDownloading(true); setDownloadProgress(null);
+    setIsDownloading(true);
     try {
       const outputPath = settings.defaultOutputPath || '~/Downloads/xVideo';
       const taskId = await startDownload(currentUrl, selectedFormat.format_id, outputPath, settings.filenameTemplate, postProcessing, { proxy: settings.proxy, limitRate: settings.limitRate, retries: settings.retries, concurrentFragments: settings.concurrentFragments, cookieSource: settings.cookieSource });
@@ -263,24 +245,7 @@ export function DownloadPage() {
         </div>
       )}
 
-      {/* Progress */}
-      {downloadProgress && (
-        <div style={{ background: c.bg, borderRadius: '12px', border: `1px solid ${c.border}`, padding: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{ width: '14px', height: '14px', border: `2px solid ${c.accent}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-              <span style={{ fontSize: '13px', fontWeight: 500, color: c.text }}>正在下载</span>
-            </div>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: c.accent, fontVariantNumeric: 'tabular-nums' }}>{downloadProgress.percent.toFixed(1)}%</span>
-          </div>
-          <div style={{ height: '6px', background: '#F2F2F7', borderRadius: '3px', overflow: 'hidden' }}>
-            <div style={{ height: '100%', background: c.accent, borderRadius: '3px', width: `${downloadProgress.percent}%`, transition: 'width 0.3s' }} />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', fontSize: '11px', color: c.text3 }}>
-            <span>{downloadProgress.total}</span><span>{downloadProgress.speed}</span><span>剩余 {downloadProgress.eta}</span>
-          </div>
-        </div>
-      )}
+      {/* Empty State */}
 
       {/* Empty State */}
       {!videoInfo && !isParsing && (
