@@ -3,7 +3,7 @@ import { parseVideo, startDownload } from '../services/ytdlp';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
-import type { DownloadProgress, Format } from '../types';
+import type { Format } from '../types';
 
 export function DownloadPage() {
   const {
@@ -46,7 +46,6 @@ export function DownloadPage() {
     });
 
     return () => {
-      unlistenProgress.then((fn) => fn());
       unlistenComplete.then((fn) => fn());
       unlistenError.then((fn) => fn());
     };
@@ -100,7 +99,7 @@ export function DownloadPage() {
     try {
       const outputPath = settings.defaultOutputPath || '~/Downloads/xVideo';
       const taskId = await startDownload(currentUrl, selectedFormat.format_id, outputPath, settings.filenameTemplate, postProcessing, { proxy: settings.proxy, limitRate: settings.limitRate, retries: settings.retries, concurrentFragments: settings.concurrentFragments, cookieSource: settings.cookieSource });
-      setCurrentDownload({ id: taskId, url: currentUrl, videoInfo, selectedFormat, status: 'downloading', progress: downloadProgress, outputPath, error: null, createdAt: new Date(), completedAt: null });
+      setCurrentDownload({ id: taskId, url: currentUrl, videoInfo, selectedFormat, status: 'downloading', progress: null, outputPath, error: null, createdAt: new Date(), completedAt: null });
     } catch (error) {
       console.error('Download failed:', error);
       setIsDownloading(false);
