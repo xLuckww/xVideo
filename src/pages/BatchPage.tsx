@@ -128,6 +128,9 @@ export function BatchPage() {
       <div>
         <h1 style={{ fontSize: '24px', fontWeight: 700, color: c.text, letterSpacing: '-0.01em' }}>批量下载</h1>
         <p style={{ fontSize: '13px', color: c.text2, marginTop: '4px' }}>同时下载多个视频，支持播放列表</p>
+        <div style={{ marginTop: '10px', padding: '10px 14px', background: 'rgba(0,113,227,0.06)', borderRadius: '8px', fontSize: '12px', color: c.text2, lineHeight: '1.6' }}>
+          💡 如遇无法解析的情况，请前往<strong style={{ color: c.accent }}> 设置 </strong>中配置 Cookie 来源
+        </div>
       </div>
 
       {/* 输入链接 */}

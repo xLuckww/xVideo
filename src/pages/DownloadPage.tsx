@@ -134,6 +134,9 @@ export function DownloadPage() {
       <div>
         <h1 style={{ fontSize: '24px', fontWeight: 700, color: c.text, letterSpacing: '-0.01em' }}>下载视频</h1>
         <p style={{ fontSize: '13px', color: c.text2, marginTop: '4px' }}>粘贴视频链接，选择格式，开始下载</p>
+        <div style={{ marginTop: '10px', padding: '10px 14px', background: 'rgba(0,113,227,0.06)', borderRadius: '8px', fontSize: '12px', color: c.text2, lineHeight: '1.6' }}>
+          💡 如遇无法解析的情况，请前往<strong style={{ color: c.accent }}> 设置 </strong>中配置 Cookie 来源
+        </div>
       </div>
 
       {/* URL Input */}
