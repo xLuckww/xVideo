@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>赞赏区域预览</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #F5F5F7; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+    .card { background: #fff; border-radius: 12px; border: 1px solid #E5E5EA; padding: 20px; max-width: 400px; width: 100%; }
+    h3 { font-size: 15px; font-weight: 600; color: #1D1D1F; margin: 0 0 8px; }
+    p { font-size: 13px; color: #86868B; line-height: 1.6; margin: 0 0 16px; }
+    .qrcodes { display: flex; gap: 24px; justify-content: center; }
+    .qr-item { text-align: center; }
+    .qr-box { width: 160px; height: 160px; background: #F5F5F7; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    .qr-box img { width: 100%; height: 100%; object-fit: cover; }
+    .qr-label { font-size: 12px; color: #86868B; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h3>赞赏</h3>
+    <p>如果你喜欢本产品的话，可以对作者进行投喂鼓励一下！</p>
+    <div class="qrcodes">
+      <div class="qr-item">
+        <div class="qr-box">
+          <img src="https://via.placeholder.com/160x160/0071E3/FFFFFF?text=支付宝" alt="支付宝">
+        </div>
+        <div class="qr-label">支付宝</div>
+      </div>
+      <div class="qr-item">
+        <div class="qr-box">
+          <img src="https://via.placeholder.com/160x160/07C160/FFFFFF?text=微信支付" alt="微信支付">
+        </div>
+        <div class="qr-label">微信支付</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,51 @@
+@import "tailwindcss";
+@import "./styles/design-system.css";
+
+@theme {
+  --color-bg: #FFFFFF;
+  --color-bg-secondary: #F5F5F7;
+  --color-bg-tertiary: #E8E8ED;
+  --color-text-primary: #1D1D1F;
+  --color-text-secondary: #86868B;
+  --color-text-muted: #AEAEB2;
+  --color-accent: #0071E3;
+  --color-accent-hover: #0077ED;
+  --color-accent-light: rgba(0, 113, 227, 0.08);
+  --color-success: #34C759;
+  --color-success-light: rgba(52, 199, 89, 0.1);
+  --color-error: #FF3B30;
+  --color-error-light: rgba(255, 59, 48, 0.1);
+  --color-warning: #FF9500;
+  --color-warning-light: rgba(255, 149, 0, 0.1);
+  --color-border: #D2D2D7;
+  --color-border-light: #E5E5EA;
+  --color-sidebar: #FBFBFD;
+}
+
+/* 自定义滚动条 - 更粗更明显 */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C7C7CC;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #AEAEB2;
+  background-clip: content-box;
+}
+
+/* 旋转动画 */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
