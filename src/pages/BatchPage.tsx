@@ -35,7 +35,7 @@ export function BatchPage() {
 
     for (let i = 0; i < urlList.length; i++) {
       try {
-        const info = await parseVideo(urlList[i], settings.cookieSource);
+        const info = await parseVideo(urlList[i], settings.cookieSource, settings.cookieEnabled, settings.cookieFile);
         setBatchItems(prev => prev.map((item, idx) =>
           idx === i ? { ...item, status: 'completed', title: info.title } : item
         ));
@@ -63,7 +63,7 @@ export function BatchPage() {
       ));
 
       try {
-        const info = await parseVideo(item.url, settings.cookieSource);
+        const info = await parseVideo(item.url, settings.cookieSource, settings.cookieEnabled, settings.cookieFile);
         let bestFormat = null;
         if (info.formats && info.formats.length > 0) {
           bestFormat = info.formats.find(f => f.format_note === '1080p')
@@ -72,7 +72,7 @@ export function BatchPage() {
 
           await startDownload(item.url, bestFormat.format_id, settings.defaultOutputPath, settings.filenameTemplate, postProcessing, {
             proxy: settings.proxy, limitRate: settings.limitRate, retries: settings.retries,
-            concurrentFragments: settings.concurrentFragments, cookieSource: settings.cookieSource,
+            concurrentFragments: settings.concurrentFragments, cookieEnabled: settings.cookieEnabled, cookieSource: settings.cookieSource, cookieFile: settings.cookieFile,
           });
         }
 

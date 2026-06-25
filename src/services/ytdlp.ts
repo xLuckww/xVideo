@@ -4,8 +4,8 @@ import type { VideoInfo, Format, PostProcessingOptions } from '../types';
 /**
  * Parse video information from URL
  */
-export async function parseVideo(url: string, cookieSource?: string): Promise<VideoInfo> {
-  return await invoke<VideoInfo>('parse_video', { url, cookieSource: cookieSource || 'none' });
+export async function parseVideo(url: string, cookieSource?: string, cookieEnabled?: boolean, cookieFile?: string): Promise<VideoInfo> {
+  return await invoke<VideoInfo>('parse_video', { url, cookieSource: cookieSource || 'chrome', cookieEnabled: cookieEnabled || false, cookieFile: cookieFile || '' });
 }
 
 /**
@@ -29,7 +29,9 @@ export async function startDownload(
     limitRate?: string;
     retries?: number;
     concurrentFragments?: number;
+    cookieEnabled?: boolean;
     cookieSource?: string;
+    cookieFile?: string;
   }
 ): Promise<string> {
   return await invoke<string>('start_download', {

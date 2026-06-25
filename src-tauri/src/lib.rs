@@ -65,8 +65,12 @@ pub struct DownloadSettings {
     pub retries: Option<u32>,
     #[serde(rename = "concurrentFragments")]
     pub concurrent_fragments: Option<u32>,
+    #[serde(rename = "cookieEnabled")]
+    pub cookie_enabled: Option<bool>,
     #[serde(rename = "cookieSource")]
     pub cookie_source: Option<String>,
+    #[serde(rename = "cookieFile")]
+    pub cookie_file: Option<String>,
 }
 
 fn get_ytdlp_path() -> PathBuf {
@@ -96,14 +100,22 @@ fn get_ytdlp_path() -> PathBuf {
 }
 
 #[tauri::command]
-async fn parse_video(url: String, cookie_source: Option<String>) -> Result<VideoInfo, String> {
+async fn parse_video(url: String, cookie_source: Option<String>, cookie_enabled: Option<bool>, cookie_file: Option<String>) -> Result<VideoInfo, String> {
     let ytdlp = get_ytdlp_path();
-    let mut args = vec!["--dump-json".to_string(), "--no-download".to_string(), url];
+    let mut args = vec!["--js-runtimes".to_string(), "node:/usr/local/bin/node".to_string(), "--dump-json".to_string(), "--no-download".to_string(), url];
 
-    if let Some(cookie) = &cookie_source {
-        if cookie != "none" && !cookie.is_empty() {
-            args.push("--cookies-from-browser".to_string());
-            args.push(cookie.clone());
+    if cookie_enabled.unwrap_or(false) {
+        // 优先使用手动选择的 Cookie 文件
+        if let Some(file) = &cookie_file {
+            if !file.is_empty() {
+                args.push("--cookies".to_string());
+                args.push(file.clone());
+            }
+        } else if let Some(cookie) = &cookie_source {
+            if !cookie.is_empty() {
+                args.push("--cookies-from-browser".to_string());
+                args.push(cookie.clone());
+            }
         }
     }
 
@@ -156,20 +168,23 @@ async fn start_download(
     settings: DownloadSettings,
 ) -> Result<String, String> {
     let ytdlp = get_ytdlp_path();
-    // 如果 format_id 是 "best" 或包含 "bestvideo"，使用合并格式
-    // 否则下载指定格式 + 最佳音频，然后合并
+    // 格式选择策略：优先合并视频+音频，失败则回退到纯视频
     let format_arg = if format_id == "best" || format_id.contains("bestvideo") {
         format_id.clone()
     } else {
-        format!("{}+bestaudio/best", format_id)
+        format!("{}+bestaudio/bestvideo+bestaudio/best", format_id)
     };
     let mut args = vec![
+        "--js-runtimes".to_string(),
+        "node:/usr/local/bin/node".to_string(),
         "-f".to_string(),
         format_arg,
         "--merge-output-format".to_string(),
         "mp4".to_string(),
         "-o".to_string(),
         format!("{}/{}", output_path, filename_template),
+        // 优先使用原生 HLS/DASH 合并，不依赖 ffmpeg
+        "--hls-prefer-native".to_string(),
     ];
 
     // Post processing
@@ -211,10 +226,18 @@ async fn start_download(
         args.push("-N".to_string());
         args.push(concurrent.to_string());
     }
-    if let Some(cookie) = &settings.cookie_source {
-        if cookie != "none" && !cookie.is_empty() {
-            args.push("--cookies-from-browser".to_string());
-            args.push(cookie.clone());
+    if settings.cookie_enabled.unwrap_or(false) {
+        // 优先使用手动选择的 Cookie 文件
+        if let Some(file) = &settings.cookie_file {
+            if !file.is_empty() {
+                args.push("--cookies".to_string());
+                args.push(file.clone());
+            }
+        } else if let Some(cookie) = &settings.cookie_source {
+            if !cookie.is_empty() {
+                args.push("--cookies-from-browser".to_string());
+                args.push(cookie.clone());
+            }
         }
     }
 

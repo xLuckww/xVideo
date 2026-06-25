@@ -65,7 +65,9 @@ const defaultSettings: AppSettings = {
   keepArchive: true,
   shutdownAfterDownload: false,
   useSystemProxy: false,
-  cookieSource: 'none',
+  cookieEnabled: false,
+  cookieSource: 'chrome',
+  cookieFile: '',
 };
 
 // Load saved settings from localStorage

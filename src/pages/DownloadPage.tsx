@@ -83,7 +83,7 @@ export function DownloadPage() {
     if (!currentUrl) return;
     setIsParsing(true); setParseError(null); setVideoInfo(null); setSelectedFormat(null);
     try {
-      const info = await parseVideo(currentUrl, settings.cookieSource);
+      const info = await parseVideo(currentUrl, settings.cookieSource, settings.cookieEnabled, settings.cookieFile);
       setVideoInfo(info);
       if (info.formats?.length) {
         const best = info.formats.find(f => f.format_note === '1080p') || info.formats.find(f => f.height && f.height >= 720) || info.formats[info.formats.length - 1];
@@ -98,7 +98,7 @@ export function DownloadPage() {
     setIsDownloading(true);
     try {
       const outputPath = settings.defaultOutputPath || '~/Downloads/xVideo';
-      const taskId = await startDownload(currentUrl, selectedFormat.format_id, outputPath, settings.filenameTemplate, postProcessing, { proxy: settings.proxy, limitRate: settings.limitRate, retries: settings.retries, concurrentFragments: settings.concurrentFragments, cookieSource: settings.cookieSource });
+      const taskId = await startDownload(currentUrl, selectedFormat.format_id, outputPath, settings.filenameTemplate, postProcessing, { proxy: settings.proxy, limitRate: settings.limitRate, retries: settings.retries, concurrentFragments: settings.concurrentFragments, cookieEnabled: settings.cookieEnabled, cookieSource: settings.cookieSource, cookieFile: settings.cookieFile });
       setCurrentDownload({ id: taskId, url: currentUrl, videoInfo, selectedFormat, status: 'downloading', progress: null, outputPath, error: null, createdAt: new Date(), completedAt: null });
     } catch (error) {
       console.error('Download failed:', error);
@@ -115,8 +115,66 @@ export function DownloadPage() {
       <div>
         <h1 style={{ fontSize: '24px', fontWeight: 700, color: c.text, letterSpacing: '-0.01em' }}>下载视频</h1>
         <p style={{ fontSize: '13px', color: c.text2, marginTop: '4px' }}>粘贴视频链接，选择格式，开始下载</p>
+
+        {/* Cookie 设置 */}
+        <div style={{ marginTop: '12px', padding: '14px 16px', background: c.bg, border: `1px solid ${c.border}`, borderRadius: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 500, color: c.text }}>启用 Cookie</div>
+              <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>解析抖音等网站时可能需要</div>
+            </div>
+            <button onClick={() => setSettings({ cookieEnabled: !settings.cookieEnabled, cookieFile: settings.cookieEnabled ? settings.cookieFile : '' })}
+              style={{ width: '44px', minWidth: '44px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0, padding: 0,
+                background: settings.cookieEnabled ? c.accent : '#D1D1D6' }}>
+              <span style={{ position: 'absolute', top: '2px', left: '2px', width: '22px', height: '22px', background: '#fff', borderRadius: '50%', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', transform: settings.cookieEnabled ? 'translateX(18px)' : 'translateX(0)' }} />
+            </button>
+          </div>
+          {settings.cookieEnabled && (
+            <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #F2F2F7' }}>
+              {/* 方式一：浏览器 Cookie */}
+              <div onClick={() => setSettings({ cookieFile: '' })} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', background: !settings.cookieFile ? 'rgba(0,113,227,0.04)' : 'transparent', border: `1px solid ${!settings.cookieFile ? c.accent : 'transparent'}`, marginBottom: '8px' }}>
+                <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: `2px solid ${!settings.cookieFile ? c.accent : '#D1D1D6'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' }}>
+                  {!settings.cookieFile && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: c.accent }} />}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '12px', fontWeight: 500, color: c.text }}>从浏览器获取</div>
+                  <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>选择浏览器，自动读取 Cookie</div>
+                  {!settings.cookieFile && (
+                    <select value={settings.cookieSource} onChange={(e) => { e.stopPropagation(); setSettings({ cookieSource: e.target.value }); }}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ width: '100%', height: '30px', padding: '0 8px', marginTop: '6px', background: c.input, border: `1px solid ${c.inputBorder}`, borderRadius: '6px', fontSize: '12px', color: c.text, outline: 'none', cursor: 'pointer' }}>
+                      <option value="chrome">Chrome</option><option value="firefox">Firefox</option><option value="safari">Safari</option><option value="edge">Edge</option>
+                    </select>
+                  )}
+                </div>
+              </div>
+
+              {/* 方式二：手动 Cookie 文件 */}
+              <div onClick={() => {} } style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', background: settings.cookieFile ? 'rgba(0,113,227,0.04)' : 'transparent', border: `1px solid ${settings.cookieFile ? c.accent : 'transparent'}` }}>
+                <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: `2px solid ${settings.cookieFile ? c.accent : '#D1D1D6'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' }}>
+                  {settings.cookieFile && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: c.accent }} />}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '12px', fontWeight: 500, color: c.text }}>手动选择 Cookie 文件</div>
+                  <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>选择导出的 cookies.txt 文件</div>
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                    <input type="text" value={settings.cookieFile ? settings.cookieFile.split('/').pop() : ''} readOnly placeholder="未选择文件"
+                      style={{ flex: 1, height: '30px', padding: '0 8px', background: c.input, border: `1px solid ${c.inputBorder}`, borderRadius: '6px', fontSize: '11px', color: settings.cookieFile ? c.text : c.text3, outline: 'none' }} />
+                    <button onClick={async (e) => {
+                      e.stopPropagation();
+                      const file = await open({ filters: [{ name: 'Cookie 文件', extensions: ['txt'] }], title: '选择 Cookie 文件' });
+                      if (file) setSettings({ cookieFile: file as string });
+                    }}
+                      style={{ height: '30px', padding: '0 10px', background: c.input, color: c.text, border: `1px solid ${c.inputBorder}`, borderRadius: '6px', fontSize: '11px', cursor: 'pointer' }}>选择</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div style={{ marginTop: '10px', padding: '10px 14px', background: 'rgba(0,113,227,0.06)', borderRadius: '8px', fontSize: '12px', color: c.text2, lineHeight: '1.6' }}>
-          💡 如遇无法解析的情况，请前往<strong style={{ color: c.accent }}> 设置 </strong>中配置 Cookie 来源
+          💡 如遇无法解析的情况，请启动并配置 Cookie 来源
         </div>
       </div>
 
@@ -243,8 +301,6 @@ export function DownloadPage() {
           }} style={{ height: '44px', padding: '0 20px', background: c.input, color: c.text, border: `1px solid ${c.inputBorder}`, borderRadius: '10px', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>选择路径</button>
         </div>
       )}
-
-      {/* Empty State */}
 
       {/* Empty State */}
       {!videoInfo && !isParsing && (

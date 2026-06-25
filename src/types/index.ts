@@ -101,7 +101,9 @@ export interface AppSettings {
   keepArchive: boolean;
   shutdownAfterDownload: boolean;
   useSystemProxy: boolean;
+  cookieEnabled: boolean;
   cookieSource: string;
+  cookieFile: string;
 }
 
 // Batch download

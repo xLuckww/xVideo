@@ -146,14 +146,6 @@ export function SettingsPage() {
               </button>
             </div>
           ))}
-          <div style={{ paddingTop: '14px' }}>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#1D1D1F', marginBottom: '6px' }}>Cookie 来源</label>
-            <select value={settings.cookieSource} onChange={(e) => setSettings({ cookieSource: e.target.value })}
-              style={{ width: '100%', height: '36px', padding: '0 12px', background: '#F5F5F7', border: '1px solid #D2D2D7', borderRadius: '8px', fontSize: '13px', color: '#1D1D1F', outline: 'none', cursor: 'pointer' }}>
-              <option value="none">不使用</option><option value="chrome">Chrome</option><option value="firefox">Firefox</option><option value="safari">Safari</option><option value="edge">Edge</option>
-            </select>
-            <p style={{ marginTop: '6px', fontSize: '11px', color: '#AEAEB2' }}>用于访问需要登录的视频内容</p>
-          </div>
         </div>
       </div>
 

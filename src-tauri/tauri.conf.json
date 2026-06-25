@@ -13,11 +13,8 @@
     "windows": [
       {
         "title": "xVideo",
-        "width": 1024,
-        "height": 768,
-        "minWidth": 800,
-        "minHeight": 600,
-        "center": true
+        "width": 800,
+        "height": 600
       }
     ],
     "security": {
@@ -33,14 +30,6 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "externalBin": [
-      "binaries/yt-dlp"
-    ],
-    "windows": {
-      "webviewInstallMode": {
-        "type": "embedBootstrapper"
-      }
-    }
+    ]
   }
 }
