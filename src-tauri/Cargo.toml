@@ -1,6 +1,6 @@
 [package]
 name = "xvideo"
-version = "1.0.0"
+version = "1.1.0"
 description = "xVideo - 基于 yt-dlp 的桌面视频下载工具"
 authors = ["xVideo"]
 edition = "2021"

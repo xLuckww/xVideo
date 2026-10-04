@@ -20,6 +20,8 @@ interface Rule {
   action?: ErrorAction;
 }
 
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
+
 const ENABLE_COOKIE = '请在「下载」页启用 Cookie，并选择已登录该网站的浏览器后重试';
 const CHECK_NETWORK = '请检查网络连接，或在「设置 → 网络设置」中配置代理';
 const UPDATE_ENGINE = '网站可能已改版，请到「设置 → 下载引擎」检查更新';
@@ -27,13 +29,19 @@ const UPDATE_ENGINE = '网站可能已改版，请到「设置 → 下载引擎�
 // Ordered: the first match wins, so specific causes come before generic ones
 const RULES: Rule[] = [
   // Browser cookies
-  { test: /cookies database|binarycookies|Operation not permitted.*(Chrome|Safari|Firefox|Edge|Brave|Cookies)/i,
-    title: '无法读取浏览器 Cookie', action: 'cookie-access',
-    hint: 'macOS 阻止了 xVideo 读取浏览器数据，请在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」中添加并勾选 xVideo，然后重启 xVideo' },
+  ...(IS_MAC
+    ? [{ test: /cookies database|binarycookies|Operation not permitted.*(Chrome|Safari|Firefox|Edge|Brave|Cookies)/i,
+      title: '无法读取浏览器 Cookie', action: 'cookie-access' as const,
+      hint: 'macOS 阻止了 xVideo 读取浏览器数据，请在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」中添加并勾选 xVideo，然后重启 xVideo' }]
+    : [{ test: /could not find .* cookies database/i,
+      title: '找不到浏览器的 Cookie', hint: '请确认已安装并登录过该浏览器，或在「下载」页改选其他浏览器' }]),
   { test: /database is locked|could not copy .*cookie/i,
-    title: '浏览器 Cookie 数据库被占用', hint: '请完全退出该浏览器后重试' },
-  { test: /cannot decrypt|failed to decrypt|keyring|keychain/i,
-    title: '无法解密浏览器 Cookie', hint: '请在弹出的钥匙串授权窗口中点击「允许」，或改用「手动选择 Cookie 文件」' },
+    title: '浏览器 Cookie 数据库被占用', hint: '请完全退出该浏览器（包括后台进程）后重试' },
+  { test: /cannot decrypt|failed to decrypt|keyring|keychain|DPAPI|App-Bound/i,
+    title: '无法解密浏览器 Cookie',
+    hint: IS_MAC
+      ? '请在弹出的钥匙串授权窗口中点击「允许」，或改用「手动选择 Cookie 文件」'
+      : '新版 Chrome / Edge 在 Windows 上加密了 Cookie，暂时无法直接读取，请改用 Firefox，或「手动选择 Cookie 文件」' },
   { test: /Fresh cookies .*needed|抖音拒绝了请求/i,
     title: '抖音拒绝了请求', action: 'enable-cookie',
     hint: '请先在浏览器中打开 douyin.com（无需登录），再在「下载」页启用 Cookie 后重试' },

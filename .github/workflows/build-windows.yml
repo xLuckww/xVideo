@@ -1,0 +1,123 @@
+# 构建 Windows x64 安装包（MSI + NSIS），引擎从 yt-dlp 源码构建，与 macOS 的 scripts/build-engine.sh 对应。
+# 手动触发；填写 release_tag 时会把安装包上传到该 Release。
+name: Build Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      ytdlp_ref:
+        description: 构建引擎所用的 yt-dlp 提交 / 标签
+        default: 51bab8a0116f4d8004c315706d809782607d5847
+      release_tag:
+        description: 上传到的 Release 标签（留空则只保存为构建产物）
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.13'
+  DENO_VERSION: v2.9.7
+  TARGET: x86_64-pc-windows-msvc
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout yt-dlp source
+        uses: actions/checkout@v4
+        with:
+          repository: yt-dlp/yt-dlp
+          ref: ${{ inputs.ytdlp_ref }}
+          path: build/yt-dlp-src
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build engine
+        run: |
+          set -euo pipefail
+          uv venv --python "$PYTHON_VERSION" build/venv
+          PY="$PWD/build/venv/Scripts/python.exe"
+          REQ=build/yt-dlp-src/bundle/requirements
+          uv pip install --python "$PY" --require-hashes \
+            -r "$REQ/default.txt" -r "$REQ/curl-cffi.txt" -r "$REQ/pyinstaller.txt"
+          cd build/yt-dlp-src
+          "$PY" devscripts/set-variant.py xvideo -M "请在 xVideo「设置 → 下载引擎」中更新"
+          "$PY" devscripts/make_lazy_extractors.py
+          "$PY" -m bundle.pyinstaller --onedir
+          cd ../..
+          mkdir -p src-tauri/engine
+          cp -R build/yt-dlp-src/dist/yt-dlp src-tauri/engine/yt-dlp
+          src-tauri/engine/yt-dlp/yt-dlp.exe --version | tr -d '\r' > src-tauri/engine/VERSION
+          echo "engine $(cat src-tauri/engine/VERSION)"
+
+      - name: Fetch ffmpeg and deno
+        run: |
+          set -euo pipefail
+          mkdir -p build/downloads src-tauri/binaries
+          cd build/downloads
+
+          # ffmpeg：yt-dlp 官方维护的构建
+          base=https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest
+          curl -fsSL --retry 3 -o ffmpeg.zip "$base/ffmpeg-master-latest-win64-gpl.zip"
+          curl -fsSL --retry 3 -o ffmpeg.sums "$base/checksums.sha256"
+          expected=$(grep 'ffmpeg-master-latest-win64-gpl.zip$' ffmpeg.sums | awk '{print $1}')
+          echo "$expected  ffmpeg.zip" | sha256sum -c -
+          7z x -y -offmpeg ffmpeg.zip > /dev/null
+          cp "$(find ffmpeg -name ffmpeg.exe | head -1)" "../../src-tauri/binaries/ffmpeg-$TARGET.exe"
+          cp "$(find ffmpeg -name ffprobe.exe | head -1)" "../../src-tauri/binaries/ffprobe-$TARGET.exe"
+
+          # deno：校验文件为 PowerShell Get-FileHash 格式，提取其中的哈希
+          base=https://github.com/denoland/deno/releases/download/$DENO_VERSION
+          curl -fsSL --retry 3 -o deno.zip "$base/deno-$TARGET.zip"
+          expected=$(curl -fsSL --retry 3 "$base/deno-$TARGET.zip.sha256sum" | grep -oiE '[0-9a-f]{64}' | head -1 | tr 'A-F' 'a-f')
+          echo "$expected  deno.zip" | sha256sum -c -
+          7z x -y -odeno deno.zip > /dev/null
+          cp deno/deno.exe "../../src-tauri/binaries/deno-$TARGET.exe"
+
+      - name: Smoke test bundled tools
+        run: |
+          set -euo pipefail
+          src-tauri/binaries/ffmpeg-$TARGET.exe -hide_banner -version | head -1
+          src-tauri/binaries/deno-$TARGET.exe --version | head -1
+          src-tauri/engine/yt-dlp/yt-dlp.exe --ignore-config --no-update -v --version 2>&1 | grep -E "Optional libraries|^[0-9]" || true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build app
+        run: |
+          npm ci
+          npx tauri build
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: xVideo-windows
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" \
+            src-tauri/target/release/bundle/msi/*.msi \
+            src-tauri/target/release/bundle/nsis/*.exe \
+            --clobber

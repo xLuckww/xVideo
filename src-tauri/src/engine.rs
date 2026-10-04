@@ -16,12 +16,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter};
 
+// 引擎可执行文件名（不含 .exe）与官方 onedir 发布包名，两者布局一致：<包根>/<ENGINE_NAME>[.exe] + _internal/
 #[cfg(target_os = "macos")]
 const ENGINE_NAME: &str = "yt-dlp_macos";
+#[cfg(target_os = "macos")]
+const RELEASE_ASSET: &str = "yt-dlp_macos.zip";
 #[cfg(target_os = "windows")]
 const ENGINE_NAME: &str = "yt-dlp";
+#[cfg(target_os = "windows")]
+const RELEASE_ASSET: &str = "yt-dlp_win.zip";
 #[cfg(target_os = "linux")]
 const ENGINE_NAME: &str = "yt-dlp_linux";
+#[cfg(target_os = "linux")]
+const RELEASE_ASSET: &str = "yt-dlp_linux.zip";
 
 const RELEASE_API: &str = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest";
 const DOWNLOAD_BASE: &str = "https://github.com/yt-dlp/yt-dlp/releases/download";
@@ -265,14 +272,14 @@ pub async fn update(app: AppHandle, proxy: Option<String>) -> Result<String, Str
         return Ok(info.current.unwrap_or(info.latest));
     }
     let tag = info.latest;
-    let asset = format!("{ENGINE_NAME}.zip");
+    let asset = RELEASE_ASSET;
     let client = client(proxy.as_deref())?;
 
     let sums = String::from_utf8_lossy(
         &download(&app, &client, &format!("{DOWNLOAD_BASE}/{tag}/SHA2-256SUMS")).await?,
     )
     .into_owned();
-    let expected = expected_sha256(&sums, &asset).ok_or("校验文件中没有找到引擎压缩包")?;
+    let expected = expected_sha256(&sums, asset).ok_or("校验文件中没有找到引擎压缩包")?;
     let zip = download(&app, &client, &format!("{DOWNLOAD_BASE}/{tag}/{asset}")).await?;
     if hex(&Sha256::digest(&zip)) != expected {
         return Err("引擎压缩包校验失败，已放弃更新".into());
@@ -305,9 +312,15 @@ fn install(data: &Path, tag: &str, zip: &[u8]) -> Result<String, String> {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&engine, std::fs::Permissions::from_mode(0o755));
     }
-    let output = std::process::Command::new(&engine)
-        .arg("--version")
-        .env("PATH", child_path_env())
+    let mut cmd = std::process::Command::new(&engine);
+    cmd.arg("--version").env("PATH", child_path_env());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = cmd
         .output()
         .map_err(|e| format!("新引擎无法运行: {e}"))?;
     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -334,7 +347,23 @@ fn unzip(zip: &Path, dest: &Path) -> Result<(), String> {
     status.success().then_some(()).ok_or_else(|| "解压引擎失败".to_string())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+fn unzip(zip: &Path, dest: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    // Windows 10 1803 起自带 bsdtar，可直接解压 zip
+    let status = std::process::Command::new("tar")
+        .arg("-xf")
+        .arg(zip)
+        .arg("-C")
+        .arg(dest)
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .map_err(|e| e.to_string())?;
+    status.success().then_some(()).ok_or_else(|| "解压引擎失败".to_string())
+}
+
+#[cfg(target_os = "linux")]
 fn unzip(_zip: &Path, _dest: &Path) -> Result<(), String> {
     Err("当前平台暂不支持在线更新引擎".into())
 }
