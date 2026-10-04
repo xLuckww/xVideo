@@ -23,3 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 .superpowers/
+
+# Python bytecode from testing plugins
+__pycache__/
+
+# Bundled engine and tools (scripts/build-engine.sh)
+/build/
+/src-tauri/engine/
+/src-tauri/binaries/

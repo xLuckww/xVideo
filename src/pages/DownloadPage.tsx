@@ -1,203 +1,261 @@
-import { useAppStore } from '../stores/useAppStore';
-import { parseVideo, startDownload } from '../services/ytdlp';
-import { listen } from '@tauri-apps/api/event';
+import { useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { useEffect, useState } from 'react';
-import type { Format } from '../types';
+import { useAppStore } from '../stores/useAppStore';
+import { networkOptions, parseVideo } from '../services/ytdlp';
+import { startTask } from '../services/downloads';
+import { TaskList } from '../components/TaskList';
+import { ErrorNotice } from '../components/ErrorNotice';
+import {
+  c, cardStyle, cardTitleStyle, inputStyle, selectStyle, secondaryButtonStyle, linkButtonStyle,
+  primaryButtonStyle, PageHeader, Notice, Badge, Switch, SwitchRow, Radio, Spinner, useToast,
+} from '../components/common';
+import {
+  audioFormats, audioSelector, formatDetail, formatLabel, formatSize, pickDefaultVideo,
+  videoFormats, videoSelector,
+} from '../lib/formats';
+import { isFeaturedAuto, listSubtitles, subtitleOptions } from '../lib/subtitles';
+import { extractUrl } from '../lib/url';
+import type { BatchItem, Format, PostProcessingOptions, VideoInfo } from '../types';
+
+const AUDIO_TARGETS = [
+  { value: 'mp3', label: 'MP3' },
+  { value: 'm4a', label: 'M4A' },
+  { value: 'aac', label: 'AAC' },
+  { value: 'opus', label: 'OPUS' },
+  { value: 'flac', label: 'FLAC' },
+  { value: 'wav', label: 'WAV' },
+  { value: 'best', label: '保留原格式' },
+];
+
+const POST_PROCESSING_ITEMS: { key: keyof PostProcessingOptions; label: string; desc: string }[] = [
+  { key: 'embedSubs', label: '嵌入字幕', desc: '将「字幕」标签中勾选的字幕嵌入视频文件' },
+  { key: 'embedThumbnail', label: '嵌入封面', desc: '将缩略图作为封面嵌入' },
+  { key: 'embedMetadata', label: '嵌入元数据', desc: '添加标题、作者等信息' },
+  { key: 'embedChapters', label: '嵌入章节', desc: '添加视频章节标记' },
+  { key: 'sponsorblockRemove', label: '去除广告片段', desc: '通过 SponsorBlock 移除赞助内容（仅 YouTube）' },
+];
+
+function FormatRow({ selected, onClick, label, detail, size, badge, square = false }: {
+  selected: boolean; onClick: () => void; label: string; detail: string; size?: string; badge?: string; square?: boolean;
+}) {
+  return (
+    <div onClick={onClick}
+      style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '12px 20px', cursor: 'pointer', background: selected ? 'rgba(0,113,227,0.04)' : 'transparent' }}>
+      <Radio checked={selected} square={square} />
+      <div style={{ width: '96px', fontSize: '13px', fontWeight: 600, color: c.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+      <div style={{ flex: 1, minWidth: 0, fontSize: '12px', color: c.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail}</div>
+      {badge && <Badge color={c.success} background={c.successBg}>{badge}</Badge>}
+      {size !== undefined && <div style={{ width: '80px', fontSize: '12px', color: c.text3, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{size}</div>}
+    </div>
+  );
+}
+
+function CookieCard() {
+  const settings = useAppStore((s) => s.settings);
+  const setSettings = useAppStore((s) => s.setSettings);
+  const useFile = !!settings.cookieFile;
+
+  return (
+    <div style={{ ...cardStyle, marginTop: '12px', padding: '14px 16px', borderRadius: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: '13px', fontWeight: 500, color: c.text }}>启用 Cookie</div>
+          <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>解析抖音、YouTube 等需要登录或人机验证的网站时使用</div>
+        </div>
+        <Switch checked={settings.cookieEnabled} onChange={(on) => setSettings({ cookieEnabled: on })} />
+      </div>
+      {settings.cookieEnabled && (
+        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${c.divider}`, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div onClick={() => setSettings({ cookieFile: '' })}
+            style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', background: !useFile ? 'rgba(0,113,227,0.04)' : 'transparent', border: `1px solid ${!useFile ? c.accent : 'transparent'}` }}>
+            <div style={{ marginTop: '1px' }}><Radio checked={!useFile} /></div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '12px', fontWeight: 500, color: c.text }}>从浏览器获取</div>
+              <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>选择浏览器，自动读取 Cookie（需先在该浏览器登录网站）</div>
+              {!useFile && (
+                <select value={settings.cookieSource} onClick={(e) => e.stopPropagation()} onChange={(e) => setSettings({ cookieSource: e.target.value })}
+                  style={{ ...selectStyle, height: '30px', padding: '0 8px', marginTop: '6px', borderRadius: '6px', fontSize: '12px' }}>
+                  <option value="chrome">Chrome</option><option value="firefox">Firefox</option><option value="safari">Safari</option>
+                  <option value="edge">Edge</option><option value="brave">Brave</option><option value="chromium">Chromium</option>
+                </select>
+              )}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderRadius: '8px', background: useFile ? 'rgba(0,113,227,0.04)' : 'transparent', border: `1px solid ${useFile ? c.accent : 'transparent'}` }}>
+            <div style={{ marginTop: '1px' }}><Radio checked={useFile} /></div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '12px', fontWeight: 500, color: c.text }}>手动选择 Cookie 文件</div>
+              <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>选择导出的 Netscape 格式 cookies.txt 文件</div>
+              <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                <input type="text" readOnly value={settings.cookieFile.split(/[\\/]/).pop() ?? ''} placeholder="未选择文件"
+                  style={{ ...inputStyle, flex: 1, height: '30px', padding: '0 8px', borderRadius: '6px', fontSize: '11px' }} />
+                <button onClick={async () => {
+                  const file = await open({ filters: [{ name: 'Cookie 文件', extensions: ['txt'] }], title: '选择 Cookie 文件' });
+                  if (typeof file === 'string') setSettings({ cookieFile: file });
+                }} style={{ ...secondaryButtonStyle, height: '30px', padding: '0 10px', borderRadius: '6px', fontSize: '11px' }}>选择</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlaylistCard({ info }: { info: VideoInfo }) {
+  const setBatchUrls = useAppStore((s) => s.setBatchUrls);
+  const setBatchItems = useAppStore((s) => s.setBatchItems);
+  const batchRunning = useAppStore((s) => s.batchRunning);
+  const setCurrentPage = useAppStore((s) => s.setCurrentPage);
+  const entries = (info.entries ?? []).filter((e) => e.url || e.webpage_url);
+
+  const sendToBatch = () => {
+    const items: BatchItem[] = entries.map((e, i) => ({
+      id: `p${Date.now()}-${i}`,
+      url: (e.url || e.webpage_url)!,
+      status: 'ready',
+      title: e.title,
+    }));
+    setBatchUrls(items.map((i) => i.url).join('\n'));
+    setBatchItems(items);
+    setCurrentPage('batch');
+  };
+
+  return (
+    <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+      <div style={{ padding: '16px 20px', borderBottom: `1px solid ${c.divider}`, display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Badge color={c.accent} background={c.accentBg}>播放列表</Badge>
+            <h3 style={{ ...cardTitleStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{info.title}</h3>
+          </div>
+          <div style={{ fontSize: '12px', color: c.text2, marginTop: '6px' }}>
+            {[info.uploader || info.channel, `${entries.length} 个视频`].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+        <button onClick={sendToBatch} disabled={entries.length === 0 || batchRunning} style={primaryButtonStyle(entries.length === 0 || batchRunning)}>
+          全部添加到批量下载
+        </button>
+      </div>
+      <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+        {entries.map((e, i) => (
+          <div key={`${e.id}-${i}`} style={{ display: 'flex', gap: '12px', padding: '10px 20px', fontSize: '12px', borderBottom: i < entries.length - 1 ? `1px solid ${c.divider}` : 'none' }}>
+            <span style={{ width: '28px', color: c.text3, fontVariantNumeric: 'tabular-nums' }}>{i + 1}</span>
+            <span style={{ flex: 1, minWidth: 0, color: c.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title || e.url || e.webpage_url}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function DownloadPage() {
   const {
     currentUrl, setCurrentUrl, videoInfo, setVideoInfo,
     isParsing, setIsParsing, parseError, setParseError,
-    selectedFormat, setSelectedFormat,
-    formatTab, setFormatTab,
+    formatTab, setFormatTab, selection, setSelection,
+    audioTarget, setAudioTarget, subtitleKeys, setSubtitleKeys,
     postProcessing, setPostProcessing,
-    settings, setSettings, setCurrentDownload,
+    settings, setSettings, environment, tasks,
   } = useAppStore();
+  const [showAllAuto, setShowAllAuto] = useState(false);
+  const { toast, show } = useToast();
 
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [showToast, setShowToast] = useState(false);
-
-  useEffect(() => {
-    const unlistenComplete = listen<string>('download-complete', () => {
-      setShowToast(true);
-      const state = useAppStore.getState();
-      const vi = state.videoInfo;
-      const sf = state.selectedFormat;
-      const url = state.currentUrl;
-      if (vi && sf) {
-        state.addHistory({
-          id: Date.now().toString(),
-          title: vi.title,
-          url: url,
-          format: sf.format_note || sf.resolution || sf.format_id,
-          size: sf.filesize ? `${(sf.filesize / 1024 / 1024).toFixed(1)} MB` : (sf.filesize_approx ? `~${(sf.filesize_approx / 1024 / 1024).toFixed(1)} MB` : '-'),
-          date: new Date().toISOString().split('T')[0],
-        });
-      }
-      setTimeout(() => {
-        setIsDownloading(false);
-        setShowToast(false);
-      }, 3000);
-    });
-
-    const unlistenError = listen<string>('download-error', () => {
-      setIsDownloading(false);
-    });
-
-    return () => {
-      unlistenComplete.then((fn) => fn());
-      unlistenError.then((fn) => fn());
-    };
-  }, []);
-
-  const allFormats = videoInfo?.formats || [];
-  const filteredFormats = allFormats.filter((f) => {
-    if (formatTab === 'audio') return f.vcodec === 'none' || f.acodec !== 'none';
-    if (formatTab === 'video') return f.vcodec !== 'none';
-    return true;
-  }).sort((a, b) => {
-    // Recommended formats (1080p) first, then sort by height descending
-    const aRecommended = a.format_note === '1080p' || a.height === 1080;
-    const bRecommended = b.format_note === '1080p' || b.height === 1080;
-    if (aRecommended && !bRecommended) return -1;
-    if (!aRecommended && bRecommended) return 1;
-    return (b.height || 0) - (a.height || 0);
-  });
-
-  const formatFileSize = (f: Format) => {
-    if (f.filesize) return `${(f.filesize / 1024 / 1024).toFixed(1)} MB`;
-    if (f.filesize_approx) return `~${(f.filesize_approx / 1024 / 1024).toFixed(1)} MB`;
-    return '-';
-  };
-
-  const formatDetail = (f: Format) => {
-    const p = [];
-    if (f.ext) p.push(f.ext.toUpperCase());
-    if (f.vcodec && f.vcodec !== 'none') p.push(f.vcodec);
-    if (f.acodec && f.acodec !== 'none') p.push(f.acodec);
-    return p.join(' · ');
-  };
+  const formats = videoInfo?.formats ?? [];
+  const videos = videoFormats(formats);
+  const audios = audioFormats(formats);
+  const subtitles = listSubtitles(videoInfo);
+  const officialSubs = subtitles.filter((s) => s.source === 'official');
+  const autoSubs = subtitles.filter((s) => s.source === 'auto');
+  const visibleAutoSubs = showAllAuto ? autoSubs : autoSubs.filter(isFeaturedAuto);
+  const isPlaylist = videoInfo?._type === 'playlist';
+  const selectedFormat: Format | null = formats.find((f) => f.format_id === selection.formatId) ?? null;
 
   const handleParse = async () => {
-    if (!currentUrl) return;
-    setIsParsing(true); setParseError(null); setVideoInfo(null); setSelectedFormat(null);
+    const url = extractUrl(currentUrl);
+    if (!url) return;
+    if (url !== currentUrl) setCurrentUrl(url);
+    setIsParsing(true); setParseError(null); setVideoInfo(null);
     try {
-      const info = await parseVideo(currentUrl, settings.cookieSource, settings.cookieEnabled, settings.cookieFile);
+      const info = await parseVideo(url, networkOptions(settings));
       setVideoInfo(info);
-      if (info.formats?.length) {
-        const best = info.formats.find(f => f.format_note === '1080p') || info.formats.find(f => f.height && f.height >= 720) || info.formats[info.formats.length - 1];
-        setSelectedFormat(best);
-      }
-    } catch (error) { setParseError(error as string); }
-    finally { setIsParsing(false); }
-  };
-
-  const handleDownload = async () => {
-    if (!currentUrl || !selectedFormat) return;
-    setIsDownloading(true);
-    try {
-      const outputPath = settings.defaultOutputPath || '~/Downloads/xVideo';
-      const taskId = await startDownload(currentUrl, selectedFormat.format_id, outputPath, settings.filenameTemplate, postProcessing, { proxy: settings.proxy, limitRate: settings.limitRate, retries: settings.retries, concurrentFragments: settings.concurrentFragments, cookieEnabled: settings.cookieEnabled, cookieSource: settings.cookieSource, cookieFile: settings.cookieFile });
-      setCurrentDownload({ id: taskId, url: currentUrl, videoInfo, selectedFormat, status: 'downloading', progress: null, outputPath, error: null, createdAt: new Date(), completedAt: null });
+      const preferred = pickDefaultVideo(info.formats ?? [], settings.defaultVideoFormat);
+      setSelection({ kind: 'video', formatId: preferred?.format_id ?? null });
+      setSubtitleKeys([]);
+      setFormatTab('video');
     } catch (error) {
-      console.error('Download failed:', error);
-      setIsDownloading(false);
+      setParseError(String(error));
+    } finally {
+      setIsParsing(false);
     }
-    // 注意：不在 finally 里重置 isDownloading，让 download-complete 事件来处理
   };
 
-  const c = { bg: '#fff', border: '#E5E5EA', text: '#1D1D1F', text2: '#86868B', text3: '#AEAEB2', input: '#F5F5F7', inputBorder: '#D2D2D7', accent: '#0071E3' };
+  const audioTargetLabel = AUDIO_TARGETS.find((t) => t.value === audioTarget)?.label ?? audioTarget.toUpperCase();
+  const mediaLabel = selection.kind === 'video'
+    ? (selectedFormat ? formatLabel(selectedFormat) : '最佳质量')
+    : `${selectedFormat ? formatLabel(selectedFormat) : '最佳音质'} → ${audioTargetLabel}`;
+
+  const handleDownload = () => {
+    if (!videoInfo) return;
+    const isVideo = selection.kind === 'video';
+    startTask({
+      url: videoInfo.webpage_url || extractUrl(currentUrl),
+      title: videoInfo.title,
+      kind: isVideo ? 'video' : 'audio',
+      formatLabel: mediaLabel,
+      sizeLabel: formatSize(selectedFormat),
+      options: isVideo
+        ? {
+          format: videoSelector(selectedFormat),
+          mergeFormat: 'mp4',
+          // 嵌入时由 ffmpeg 转为容器支持的格式，单独保存时才需要转换
+          subtitles: subtitleOptions(subtitleKeys, postProcessing.embedSubs ? undefined : settings.subtitleFormat),
+        }
+        : { format: audioSelector(selectedFormat), extractAudio: audioTarget },
+      postProcessing: isVideo ? postProcessing : { ...postProcessing, embedSubs: false },
+    });
+    show('已加入下载任务');
+  };
+
+  const toggleSubtitle = (key: string) =>
+    setSubtitleKeys(subtitleKeys.includes(key) ? subtitleKeys.filter((k) => k !== key) : [...subtitleKeys, key]);
+
+  const tabCounts = { video: videos.length + 1, audio: audios.length + 1, subtitle: subtitles.length };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Header */}
-      <div>
-        <h1 style={{ fontSize: '24px', fontWeight: 700, color: c.text, letterSpacing: '-0.01em' }}>下载视频</h1>
-        <p style={{ fontSize: '13px', color: c.text2, marginTop: '4px' }}>粘贴视频链接，选择格式，开始下载</p>
-
-        {/* Cookie 设置 */}
-        <div style={{ marginTop: '12px', padding: '14px 16px', background: c.bg, border: `1px solid ${c.border}`, borderRadius: '10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 500, color: c.text }}>启用 Cookie</div>
-              <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>解析抖音等网站时可能需要</div>
-            </div>
-            <button onClick={() => setSettings({ cookieEnabled: !settings.cookieEnabled, cookieFile: settings.cookieEnabled ? settings.cookieFile : '' })}
-              style={{ width: '44px', minWidth: '44px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0, padding: 0,
-                background: settings.cookieEnabled ? c.accent : '#D1D1D6' }}>
-              <span style={{ position: 'absolute', top: '2px', left: '2px', width: '22px', height: '22px', background: '#fff', borderRadius: '50%', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', transform: settings.cookieEnabled ? 'translateX(18px)' : 'translateX(0)' }} />
-            </button>
-          </div>
-          {settings.cookieEnabled && (
-            <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #F2F2F7' }}>
-              {/* 方式一：浏览器 Cookie */}
-              <div onClick={() => setSettings({ cookieFile: '' })} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', background: !settings.cookieFile ? 'rgba(0,113,227,0.04)' : 'transparent', border: `1px solid ${!settings.cookieFile ? c.accent : 'transparent'}`, marginBottom: '8px' }}>
-                <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: `2px solid ${!settings.cookieFile ? c.accent : '#D1D1D6'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' }}>
-                  {!settings.cookieFile && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: c.accent }} />}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '12px', fontWeight: 500, color: c.text }}>从浏览器获取</div>
-                  <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>选择浏览器，自动读取 Cookie</div>
-                  {!settings.cookieFile && (
-                    <select value={settings.cookieSource} onChange={(e) => { e.stopPropagation(); setSettings({ cookieSource: e.target.value }); }}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ width: '100%', height: '30px', padding: '0 8px', marginTop: '6px', background: c.input, border: `1px solid ${c.inputBorder}`, borderRadius: '6px', fontSize: '12px', color: c.text, outline: 'none', cursor: 'pointer' }}>
-                      <option value="chrome">Chrome</option><option value="firefox">Firefox</option><option value="safari">Safari</option><option value="edge">Edge</option>
-                    </select>
-                  )}
-                </div>
-              </div>
-
-              {/* 方式二：手动 Cookie 文件 */}
-              <div onClick={() => {} } style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', background: settings.cookieFile ? 'rgba(0,113,227,0.04)' : 'transparent', border: `1px solid ${settings.cookieFile ? c.accent : 'transparent'}` }}>
-                <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: `2px solid ${settings.cookieFile ? c.accent : '#D1D1D6'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' }}>
-                  {settings.cookieFile && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: c.accent }} />}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '12px', fontWeight: 500, color: c.text }}>手动选择 Cookie 文件</div>
-                  <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>选择导出的 cookies.txt 文件</div>
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                    <input type="text" value={settings.cookieFile ? settings.cookieFile.split('/').pop() : ''} readOnly placeholder="未选择文件"
-                      style={{ flex: 1, height: '30px', padding: '0 8px', background: c.input, border: `1px solid ${c.inputBorder}`, borderRadius: '6px', fontSize: '11px', color: settings.cookieFile ? c.text : c.text3, outline: 'none' }} />
-                    <button onClick={async (e) => {
-                      e.stopPropagation();
-                      const file = await open({ filters: [{ name: 'Cookie 文件', extensions: ['txt'] }], title: '选择 Cookie 文件' });
-                      if (file) setSettings({ cookieFile: file as string });
-                    }}
-                      style={{ height: '30px', padding: '0 10px', background: c.input, color: c.text, border: `1px solid ${c.inputBorder}`, borderRadius: '6px', fontSize: '11px', cursor: 'pointer' }}>选择</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div style={{ marginTop: '10px', padding: '10px 14px', background: 'rgba(0,113,227,0.06)', borderRadius: '8px', fontSize: '12px', color: c.text2, lineHeight: '1.6' }}>
-          💡 如遇无法解析的情况，请启动并配置 Cookie 来源
-        </div>
-      </div>
+      <PageHeader title="下载视频" subtitle="粘贴视频链接，选择格式，开始下载">
+        <CookieCard />
+        {environment && !environment.version && (
+          <Notice tone="error">下载引擎缺失或无法运行，请重新安装 xVideo</Notice>
+        )}
+        {environment?.version && !environment.ffmpeg && (
+          <Notice tone="warning">内置 ffmpeg 缺失：合并音视频、提取音频、嵌入字幕/封面将无法使用，请重新安装 xVideo</Notice>
+        )}
+      </PageHeader>
 
       {/* URL Input */}
-      <div style={{ background: c.bg, borderRadius: '12px', border: `1px solid ${c.border}`, padding: '20px' }}>
+      <div style={cardStyle}>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <input type="text" value={currentUrl} onChange={(e) => setCurrentUrl(e.target.value)} placeholder="输入 YouTube、Bilibili 等视频链接..."
-            onKeyDown={(e) => e.key === 'Enter' && handleParse()}
-            style={{ flex: 1, height: '40px', padding: '0 16px', background: c.input, border: `1px solid ${c.inputBorder}`, borderRadius: '8px', fontSize: '13px', color: c.text, outline: 'none' }} />
-          <button onClick={handleParse} disabled={isParsing || !currentUrl}
-            style={{ height: '40px', padding: '0 20px', background: c.accent, color: '#fff', borderRadius: '8px', fontSize: '14px', fontWeight: 600, border: 'none', cursor: 'pointer', opacity: isParsing ? 0.5 : 1 }}>
+          <input type="text" value={currentUrl} onChange={(e) => setCurrentUrl(e.target.value)} placeholder="输入 YouTube、Bilibili 等视频或播放列表链接..."
+            onKeyDown={(e) => e.key === 'Enter' && !isParsing && handleParse()}
+            style={{ ...inputStyle, flex: 1, height: '40px', padding: '0 16px' }} />
+          <button onClick={handleParse} disabled={isParsing || !currentUrl.trim()} style={primaryButtonStyle(isParsing || !currentUrl.trim(), 40)}>
+            {isParsing && <Spinner size={14} />}
             {isParsing ? '解析中...' : '解析'}
           </button>
         </div>
-        {parseError && <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(255,59,48,0.06)', borderRadius: '8px', fontSize: '12px', color: '#FF3B30' }}>{parseError}</div>}
+        {parseError && <ErrorNotice error={parseError} fallbackTitle="解析失败" />}
       </div>
 
+      {videoInfo && isPlaylist && <PlaylistCard info={videoInfo} />}
+
       {/* Video Info */}
-      {videoInfo && (
-        <div style={{ background: c.bg, borderRadius: '12px', border: `1px solid ${c.border}`, padding: '20px' }}>
+      {videoInfo && !isPlaylist && (
+        <div style={cardStyle}>
           <div style={{ display: 'flex', gap: '16px' }}>
             <div style={{ width: '160px', height: '90px', background: c.input, borderRadius: '10px', overflow: 'hidden', flexShrink: 0 }}>
-              {videoInfo.thumbnail ? <img src={videoInfo.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (
+              {videoInfo.thumbnail ? <img src={videoInfo.thumbnail} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (
                 <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#AEAEB2" strokeWidth="1.5"><polygon points="5 3 19 12 5 21 5 3" /></svg>
                 </div>
@@ -205,8 +263,15 @@ export function DownloadPage() {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <h3 style={{ fontSize: '14px', fontWeight: 600, color: c.text, lineHeight: 1.4 }}>{videoInfo.title}</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '12px', color: c.text2 }}>
-                <span>{videoInfo.uploader}</span><span style={{ width: '3px', height: '3px', borderRadius: '50%', background: c.text3 }} /><span>{videoInfo.duration_string}</span><span style={{ width: '3px', height: '3px', borderRadius: '50%', background: c.text3 }} /><span>{videoInfo.view_count?.toLocaleString()} 次观看</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '12px', color: c.text2, flexWrap: 'wrap' }}>
+                {[videoInfo.uploader || videoInfo.channel, videoInfo.duration_string, videoInfo.view_count != null ? `${videoInfo.view_count.toLocaleString()} 次观看` : null, videoInfo.extractor_key]
+                  .filter(Boolean)
+                  .map((text, i) => (
+                    <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {i > 0 && <span style={{ width: '3px', height: '3px', borderRadius: '50%', background: c.text3 }} />}
+                      {text}
+                    </span>
+                  ))}
               </div>
             </div>
           </div>
@@ -214,112 +279,125 @@ export function DownloadPage() {
       )}
 
       {/* Format Selection */}
-      {videoInfo && (
-        <div style={{ background: c.bg, borderRadius: '12px', border: `1px solid ${c.border}`, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid #F2F2F7` }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 600, color: c.text }}>选择格式</h3>
-            <div style={{ display: 'inline-flex', gap: '2px', padding: '2px', background: '#F2F2F7', borderRadius: '8px' }}>
-              {(['video', 'audio', 'subtitle'] as const).map(tab => (
+      {videoInfo && !isPlaylist && (
+        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid ${c.divider}` }}>
+            <h3 style={cardTitleStyle}>选择格式</h3>
+            <div style={{ display: 'inline-flex', gap: '2px', padding: '2px', background: c.divider, borderRadius: '8px' }}>
+              {(['video', 'audio', 'subtitle'] as const).map((tab) => (
                 <button key={tab} onClick={() => setFormatTab(tab)}
                   style={{ height: '28px', padding: '0 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 500, border: 'none', cursor: 'pointer',
                     background: formatTab === tab ? '#fff' : 'transparent', color: formatTab === tab ? c.text : c.text3,
                     boxShadow: formatTab === tab ? '0 1px 2px rgba(0,0,0,0.06)' : 'none' }}>
-                  {{ video: '视频', audio: '仅音频', subtitle: '字幕' }[tab]}
+                  {{ video: '视频', audio: '仅音频', subtitle: '字幕' }[tab]} {tabCounts[tab] > 0 && <span style={{ color: c.text3 }}>{tabCounts[tab]}</span>}
                 </button>
               ))}
             </div>
           </div>
-          <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
-            {filteredFormats.length > 0 ? filteredFormats.map((format) => {
-              const isSel = selectedFormat?.format_id === format.format_id;
-              return (
-                <div key={format.format_id} onClick={() => setSelectedFormat(format)}
-                  style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '12px 20px', cursor: 'pointer', background: isSel ? 'rgba(0,113,227,0.04)' : 'transparent' }}>
-                  <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: `2px solid ${isSel ? c.accent : '#D1D1D6'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {isSel && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: c.accent }} />}
-                  </div>
-                  <div style={{ width: '80px', fontSize: '13px', fontWeight: 600, color: c.text }}>{format.format_note || format.resolution || format.format_id}</div>
-                  <div style={{ flex: 1, fontSize: '12px', color: c.text2 }}>{formatDetail(format)}</div>
-                  {(format.format_id === 'best' || format.format_note === '1080p') && <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 500, background: 'rgba(52,199,89,0.1)', color: '#34C759' }}>推荐</span>}
-                  <div style={{ width: '80px', fontSize: '12px', color: c.text3, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatFileSize(format)}</div>
+
+          {formatTab === 'audio' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 20px', borderBottom: `1px solid ${c.divider}`, fontSize: '12px', color: c.text2 }}>
+              转换为
+              <select value={audioTarget} onChange={(e) => setAudioTarget(e.target.value)} style={{ ...selectStyle, width: '140px', height: '30px', fontSize: '12px' }}>
+                {AUDIO_TARGETS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+          )}
+
+          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+            {formatTab === 'video' && (
+              <>
+                <FormatRow selected={selection.kind === 'video' && selection.formatId === null} onClick={() => setSelection({ kind: 'video', formatId: null })}
+                  label="最佳质量" detail="自动选择最高画质并合并最佳音轨" badge="推荐" size="-" />
+                {videos.map((f) => (
+                  <FormatRow key={f.format_id} selected={selection.kind === 'video' && selection.formatId === f.format_id}
+                    onClick={() => setSelection({ kind: 'video', formatId: f.format_id })}
+                    label={formatLabel(f)} detail={formatDetail(f)} size={formatSize(f)} />
+                ))}
+              </>
+            )}
+            {formatTab === 'audio' && (
+              <>
+                <FormatRow selected={selection.kind === 'audio' && selection.formatId === null} onClick={() => setSelection({ kind: 'audio', formatId: null })}
+                  label="最佳音质" detail="自动选择最高音质的音轨" badge="推荐" size="-" />
+                {audios.map((f) => (
+                  <FormatRow key={f.format_id} selected={selection.kind === 'audio' && selection.formatId === f.format_id}
+                    onClick={() => setSelection({ kind: 'audio', formatId: f.format_id })}
+                    label={formatLabel(f)} detail={formatDetail(f)} size={formatSize(f)} />
+                ))}
+              </>
+            )}
+            {formatTab === 'subtitle' && (subtitles.length === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', fontSize: '13px', color: c.text3 }}>该视频没有可用字幕</div>
+            ) : (
+              <>
+                <div style={{ padding: '10px 20px', fontSize: '12px', color: c.text2, background: 'rgba(0,113,227,0.04)' }}>
+                  {postProcessing.embedSubs
+                    ? '勾选的字幕会嵌入到视频文件中'
+                    : `勾选的字幕会另存为 ${settings.subtitleFormat === 'original' ? '原始格式' : settings.subtitleFormat.toUpperCase()} 文件（可在下方开启「嵌入字幕」）`}
                 </div>
-              );
-            }) : <div style={{ padding: '40px 20px', textAlign: 'center', fontSize: '13px', color: c.text3 }}>无可用格式</div>}
+                {[...officialSubs, ...visibleAutoSubs].map((s) => (
+                  <FormatRow key={s.key} square selected={subtitleKeys.includes(s.key)} onClick={() => toggleSubtitle(s.key)}
+                    label={s.lang} detail={s.name} badge={s.source === 'official' ? '官方' : undefined} />
+                ))}
+                {autoSubs.length > visibleAutoSubs.length || showAllAuto ? (
+                  <div style={{ padding: '8px 20px' }}>
+                    <button onClick={() => setShowAllAuto(!showAllAuto)} style={linkButtonStyle}>
+                      {showAllAuto ? '收起自动翻译字幕' : `显示全部自动字幕（${autoSubs.length}）`}
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            ))}
           </div>
         </div>
       )}
 
       {/* Post Processing */}
-      {videoInfo && (
-        <div style={{ background: c.bg, borderRadius: '12px', border: `1px solid ${c.border}`, padding: '20px' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 600, color: c.text }}>后处理选项</h3>
-          <div style={{ marginTop: '16px' }}>
-            {[
-              { key: 'embedSubs', label: '嵌入字幕', desc: '将字幕嵌入视频文件中' },
-              { key: 'embedThumbnail', label: '嵌入封面', desc: '将缩略图作为封面嵌入' },
-              { key: 'embedMetadata', label: '嵌入元数据', desc: '添加标题、作者等信息' },
-              { key: 'embedChapters', label: '嵌入章节', desc: '添加视频章节标记' },
-              { key: 'sponsorblockRemove', label: '去除广告片段', desc: '通过 SponsorBlock 自动跳过赞助内容' },
-            ].map((item, i) => (
-              <div key={item.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: i < 4 ? '1px solid #F2F2F7' : 'none' }}>
-                <div style={{ flex: 1, marginRight: '16px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 500, color: c.text }}>{item.label}</div>
-                  <div style={{ fontSize: '12px', color: c.text2, marginTop: '2px' }}>{item.desc}</div>
-                </div>
-                <button onClick={() => setPostProcessing({ [item.key]: !(postProcessing as any)[item.key] })}
-                  style={{ width: '44px', minWidth: '44px', maxWidth: '44px', height: '26px', minHeight: '26px', maxHeight: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', flexShrink: 0, position: 'relative', padding: 0, appearance: 'none',
-                    background: (postProcessing as any)[item.key] ? c.accent : '#D1D1D6', transition: 'background 0.2s' }}>
-                  <span style={{ position: 'absolute', top: '2px', left: '2px', width: '22px', height: '22px', background: '#fff', borderRadius: '50%', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', transition: 'transform 0.2s',
-                    transform: (postProcessing as any)[item.key] ? 'translateX(18px)' : 'translateX(0)' }} />
-                </button>
-              </div>
+      {videoInfo && !isPlaylist && (
+        <div style={cardStyle}>
+          <h3 style={cardTitleStyle}>后处理选项</h3>
+          <div style={{ marginTop: '6px' }}>
+            {POST_PROCESSING_ITEMS.map((item, i) => (
+              <SwitchRow key={item.key} label={item.label} desc={item.desc} last={i === POST_PROCESSING_ITEMS.length - 1}
+                checked={postProcessing[item.key]} onChange={(on) => setPostProcessing({ [item.key]: on })} />
             ))}
           </div>
         </div>
       )}
 
       {/* Actions */}
-      {videoInfo && (
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button onClick={handleDownload} disabled={!selectedFormat || isDownloading}
-            style={{ flex: 1, height: '44px', background: isDownloading ? 'rgba(0,113,227,0.6)' : c.accent, color: '#fff', borderRadius: '10px', fontSize: '15px', fontWeight: 600, border: 'none', cursor: !selectedFormat || isDownloading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: isDownloading ? 'none' : '0 2px 8px rgba(0,113,227,0.3)' }}>
-            {isDownloading ? (
-              <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                下载中...
-              </>
-            ) : (
-              <>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                开始下载
-              </>
-            )}
-          </button>
-          <button onClick={async () => {
-            const path = await open({ directory: true, title: '选择保存路径' });
-            if (path) setSettings({ defaultOutputPath: path as string });
-          }} style={{ height: '44px', padding: '0 20px', background: c.input, color: c.text, border: `1px solid ${c.inputBorder}`, borderRadius: '10px', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>选择路径</button>
+      {videoInfo && !isPlaylist && (
+        <div>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button onClick={handleDownload} style={{ ...primaryButtonStyle(false, 44), flex: 1, boxShadow: '0 2px 8px rgba(0,113,227,0.3)' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+              {selection.kind === 'video' ? '下载视频' : '下载音频'} · {mediaLabel}
+              {selection.kind === 'video' && subtitleKeys.length > 0 && ` + ${subtitleKeys.length} 个字幕`}
+            </button>
+            <button onClick={async () => {
+              const path = await open({ directory: true, title: '选择保存路径' });
+              if (typeof path === 'string') setSettings({ defaultOutputPath: path });
+            }} style={{ ...secondaryButtonStyle, height: '44px', padding: '0 20px', borderRadius: '10px', fontSize: '14px' }}>选择路径</button>
+          </div>
+          <p style={{ marginTop: '8px', fontSize: '11px', color: c.text3 }}>保存到：{settings.defaultOutputPath}</p>
         </div>
       )}
 
+      <TaskList />
+
       {/* Empty State */}
-      {!videoInfo && !isParsing && (
+      {!videoInfo && !isParsing && tasks.length === 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', textAlign: 'center' }}>
-          <div style={{ width: '64px', height: '64px', background: '#F2F2F7', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' }}>
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#AEAEB2" strokeWidth="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <div style={{ width: '64px', height: '64px', background: c.divider, borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#AEAEB2" strokeWidth="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
           </div>
           <h3 style={{ fontSize: '15px', fontWeight: 600, color: c.text, marginBottom: '4px' }}>开始下载</h3>
           <p style={{ fontSize: '13px', color: c.text2 }}>在上方粘贴视频链接，点击解析按钮</p>
         </div>
       )}
 
-      {/* Toast */}
-      {showToast && (
-        <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', padding: '12px 20px', background: '#1D1D1F', color: '#fff', borderRadius: '10px', fontSize: '13px', fontWeight: 500, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', zIndex: 9999, display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg>
-          下载完成
-        </div>
-      )}
+      {toast}
     </div>
   );
 }

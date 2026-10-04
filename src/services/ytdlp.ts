@@ -1,108 +1,66 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { VideoInfo, Format, PostProcessingOptions } from '../types';
+import type { AppSettings, DownloadRequest, EngineUpdateInfo, Environment, NetworkOptions, VideoInfo } from '../types';
 
-/**
- * Parse video information from URL
- */
-export async function parseVideo(url: string, cookieSource?: string, cookieEnabled?: boolean, cookieFile?: string): Promise<VideoInfo> {
-  return await invoke<VideoInfo>('parse_video', { url, cookieSource: cookieSource || 'chrome', cookieEnabled: cookieEnabled || false, cookieFile: cookieFile || '' });
+/** Build network options from settings; a bare number for the rate limit means MB/s */
+export function networkOptions(settings: AppSettings): NetworkOptions {
+  const rate = settings.limitRate.trim().match(/^(\d*\.?\d+)\s*([KMG]?)/i);
+  return {
+    proxy: settings.proxy,
+    cookieEnabled: settings.cookieEnabled,
+    cookieSource: settings.cookieSource,
+    cookieFile: settings.cookieFile,
+    limitRate: rate ? `${rate[1]}${(rate[2] || 'M').toUpperCase()}` : '',
+    retries: settings.retries,
+    concurrentFragments: settings.concurrentFragments,
+  };
 }
 
 /**
- * Get available formats for a video
+ * Parse video information from URL.
+ * With allowPlaylist, playlist URLs return `_type: 'playlist'` with flat `entries`.
  */
-export async function getFormats(url: string): Promise<Format[]> {
-  return await invoke<Format[]>('get_formats', { url });
+export async function parseVideo(url: string, network: NetworkOptions, allowPlaylist = false): Promise<VideoInfo> {
+  return await invoke<VideoInfo>('parse_video', { url, network, allowPlaylist });
 }
 
-/**
- * Start downloading a video
- */
-export async function startDownload(
-  url: string,
-  formatId: string,
-  outputPath: string,
-  filenameTemplate: string,
-  postProcessing: PostProcessingOptions,
-  settings: {
-    proxy?: string;
-    limitRate?: string;
-    retries?: number;
-    concurrentFragments?: number;
-    cookieEnabled?: boolean;
-    cookieSource?: string;
-    cookieFile?: string;
-  }
-): Promise<string> {
-  return await invoke<string>('start_download', {
-    url,
-    formatId,
-    outputPath,
-    filenameTemplate,
-    postProcessing,
-    settings,
-  });
+/** Start a download; progress arrives via `download-*` events keyed by taskId */
+export async function startDownload(request: DownloadRequest): Promise<void> {
+  await invoke('start_download', { request });
 }
 
-/**
- * Get available subtitles for a video
- */
-export async function getSubtitles(url: string): Promise<Record<string, { ext: string; name: string }[]>> {
-  return await invoke<Record<string, { ext: string; name: string }[]>>('get_subtitles', { url });
+export async function cancelDownload(taskId: string): Promise<void> {
+  await invoke('cancel_download', { taskId });
 }
 
-/**
- * Open file in system file manager
- */
+export async function getEnvironment(): Promise<Environment> {
+  return await invoke<Environment>('get_environment');
+}
+
+/** Check GitHub for a newer official yt-dlp release */
+export async function checkEngineUpdate(proxy?: string): Promise<EngineUpdateInfo> {
+  return await invoke<EngineUpdateInfo>('check_engine_update', { proxy: proxy || null });
+}
+
+/** Download, verify and enable the latest engine; progress via `engine-update-progress` */
+export async function updateEngine(proxy?: string): Promise<string> {
+  return await invoke<string>('update_engine', { proxy: proxy || null });
+}
+
+/** Remove downloaded engines and go back to the bundled one */
+export async function resetEngine(): Promise<void> {
+  await invoke('reset_engine');
+}
+
 export async function openFile(path: string): Promise<void> {
   await invoke('open_file', { path });
 }
 
-/**
- * Open folder in system file manager
- */
+/** Reveal a file in the file manager, or open a directory */
 export async function openFolder(path: string): Promise<void> {
   await invoke('open_folder', { path });
 }
 
-/**
- * Select output directory
- */
-export async function selectDirectory(): Promise<string | null> {
-  return await invoke<string | null>('select_directory');
-}
-
-/**
- * Save settings to config file
- */
-export async function saveSettings(settings: Record<string, unknown>): Promise<void> {
-  await invoke('save_settings', { settings });
-}
-
-/**
- * Load settings from config file
- */
-export async function loadSettings(): Promise<Record<string, unknown>> {
-  return await invoke<Record<string, unknown>>('load_settings');
-}
-
-/**
- * Check for yt-dlp updates
- */
-export async function checkUpdate(): Promise<{ current: string; latest: string; needsUpdate: boolean }> {
-  return await invoke('check_update');
-}
-
-/**
- * Update yt-dlp to latest version
- */
-export async function updateYtdlp(): Promise<string> {
-  return await invoke<string>('update_ytdlp');
-}
-
-/**
- * Cancel an ongoing download
- */
-export async function cancelDownload(taskId: string): Promise<void> {
-  await invoke('cancel_download', { taskId });
+/** macOS: open the Full Disk Access pane (needed to read browser cookies) */
+export async function openPrivacySettings(): Promise<void> {
+  await invoke('open_privacy_settings');
 }

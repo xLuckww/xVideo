@@ -6,9 +6,21 @@ import { SubtitlePage } from './pages/SubtitlePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { DonatePage } from './pages/DonatePage';
 import { useAppStore } from './stores/useAppStore';
+import { initDownloadEvents } from './services/downloads';
+import { getEnvironment } from './services/ytdlp';
+import { useEffect } from 'react';
 
 function App() {
   const currentPage = useAppStore((s) => s.currentPage);
+
+  useEffect(() => {
+    // Download events must outlive page switches, so subscribe at the app root
+    const unsubscribe = initDownloadEvents();
+    getEnvironment()
+      .then((env) => useAppStore.getState().setEnvironment(env))
+      .catch(() => useAppStore.getState().setEnvironment({ ytdlp: null, engineSource: null, bundledVersion: null, ffmpeg: null, ffprobe: null, jsRuntime: null, jsRuntimePath: null, version: null }));
+    return () => { unsubscribe.then((fn) => fn()); };
+  }, []);
 
   const renderPage = () => {
     switch (currentPage) {

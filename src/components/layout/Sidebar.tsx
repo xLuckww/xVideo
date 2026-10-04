@@ -1,5 +1,5 @@
 import { Download, Stack, Clock, FileText, Gear, Lightning, Heart } from '@phosphor-icons/react';
-import { useAppStore } from '../../stores/useAppStore';
+import { useAppStore, isTaskActive } from '../../stores/useAppStore';
 
 const navItems = [
   { id: 'download' as const, label: '下载', icon: Download },
@@ -13,6 +13,9 @@ const navItems = [
 export function Sidebar() {
   const currentPage = useAppStore((s) => s.currentPage);
   const setCurrentPage = useAppStore((s) => s.setCurrentPage);
+  const environment = useAppStore((s) => s.environment);
+  const activeTasks = useAppStore((s) => s.tasks.filter(isTaskActive).length);
+  const engineOk = !!environment?.version;
 
   return (
     <aside style={{ width: '200px', height: '100%', background: '#F9F9FB', borderRight: '1px solid #E5E5EA', display: 'flex', flexDirection: 'column', userSelect: 'none', flexShrink: 0 }}>
@@ -41,17 +44,24 @@ export function Sidebar() {
               style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px', padding: '0 12px', borderRadius: '8px', fontSize: '14px', fontWeight: 500, border: 'none', cursor: 'pointer', textAlign: 'left', width: '100%',
                 background: isActive ? '#0071E3' : 'transparent', color: isActive ? '#fff' : '#636366' }}>
               <Icon size={18} weight={isActive ? 'fill' : 'regular'} color={isActive ? '#fff' : '#AEAEB2'} />
-              <span>{item.label}</span>
+              <span style={{ flex: 1 }}>{item.label}</span>
+              {item.id === 'download' && activeTasks > 0 && (
+                <span style={{ minWidth: '18px', height: '18px', padding: '0 5px', borderRadius: '9px', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: isActive ? '#fff' : '#0071E3', color: isActive ? '#0071E3' : '#fff' }}>{activeTasks}</span>
+              )}
             </button>
           );
         })}
       </nav>
 
       {/* Status */}
-      <div style={{ padding: '12px 20px', borderTop: '1px solid #E5E5EA', flexShrink: 0 }}>
+      <div onClick={() => setCurrentPage('settings')} title={environment?.ytdlp ?? '下载引擎缺失'}
+        style={{ padding: '12px 20px', borderTop: '1px solid #E5E5EA', flexShrink: 0, cursor: 'pointer' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#34C759' }} />
-          <span style={{ fontSize: '11px', color: '#AEAEB2' }}>v2026.06.09</span>
+          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: environment ? (engineOk ? '#34C759' : '#FF3B30') : '#AEAEB2' }} />
+          <span style={{ fontSize: '11px', color: '#AEAEB2' }}>
+            {environment ? (engineOk ? `引擎 ${environment.version}` : '下载引擎缺失') : '检测引擎中…'}
+          </span>
         </div>
       </div>
     </aside>

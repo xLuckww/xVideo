@@ -1,79 +1,155 @@
-const c = { bg: '#fff', border: '#E5E5EA', text: '#1D1D1F', text2: '#86868B', text3: '#AEAEB2', input: '#F5F5F7', inputBorder: '#D2D2D7', accent: '#0071E3' };
+import { useState } from 'react';
+import { useAppStore, isTaskActive } from '../stores/useAppStore';
+import { networkOptions, parseVideo } from '../services/ytdlp';
+import { startTask } from '../services/downloads';
+import { TaskList } from '../components/TaskList';
+import { ErrorNotice } from '../components/ErrorNotice';
+import { isFeaturedAuto, listSubtitles, subtitleOptions, type SubtitleEntry } from '../lib/subtitles';
+import { extractUrl } from '../lib/url';
+import {
+  c, cardStyle, cardTitleStyle, inputStyle, labelStyle, selectStyle, linkButtonStyle,
+  primaryButtonStyle, PageHeader, Badge, SwitchRow, Spinner,
+} from '../components/common';
 
-const mockSubtitles = [
-  { lang: '中文', name: '简体中文 (自动生成)', type: '自动', available: true },
-  { lang: 'English', name: 'English (Official)', type: '官方', available: true },
-  { lang: '日本語', name: '日本語 (自動生成)', type: '自动', available: true },
-  { lang: '한국어', name: '한국어 (자동 생성)', type: '自动', available: true },
-  { lang: 'Español', name: 'Español (Automático)', type: '自动', available: false },
+const SUBTITLE_FORMATS = [
+  { value: 'srt', label: 'SRT' },
+  { value: 'vtt', label: 'VTT' },
+  { value: 'ass', label: 'ASS' },
+  { value: 'lrc', label: 'LRC' },
+  { value: 'original', label: '原始格式' },
 ];
 
 export function SubtitlePage() {
+  const url = useAppStore((s) => s.subtitleUrl);
+  const setUrl = useAppStore((s) => s.setSubtitleUrl);
+  const info = useAppStore((s) => s.subtitleInfo);
+  const setInfo = useAppStore((s) => s.setSubtitleInfo);
+  const settings = useAppStore((s) => s.settings);
+  const setSettings = useAppStore((s) => s.setSettings);
+  const postProcessing = useAppStore((s) => s.postProcessing);
+  const setPostProcessing = useAppStore((s) => s.setPostProcessing);
+  const tasks = useAppStore((s) => s.tasks);
+  const [isParsing, setIsParsing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showAllAuto, setShowAllAuto] = useState(false);
+
+  const subtitles = listSubtitles(info);
+  const official = subtitles.filter((s) => s.source === 'official');
+  const auto = subtitles.filter((s) => s.source === 'auto');
+  const visible = [...official, ...(showAllAuto ? auto : auto.filter(isFeaturedAuto))];
+  const formatName = SUBTITLE_FORMATS.find((f) => f.value === settings.subtitleFormat)?.label ?? settings.subtitleFormat;
+
+  const handleParse = async () => {
+    const target = extractUrl(url);
+    if (!target) return;
+    if (target !== url) setUrl(target);
+    setIsParsing(true); setError(null); setInfo(null);
+    try {
+      const parsed = await parseVideo(target, networkOptions(settings));
+      if (parsed._type === 'playlist') throw new Error('请粘贴单个视频的链接，播放列表暂不支持批量下载字幕');
+      setInfo(parsed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const videoUrl = info?.webpage_url || url.trim();
+  const tagFor = (entry: SubtitleEntry) => `${videoUrl}#${entry.key}`;
+  const taskFor = (entry: SubtitleEntry) => tasks.find((t) => t.tag === tagFor(entry));
+
+  const download = (entry: SubtitleEntry) => {
+    if (!info) return;
+    startTask({
+      url: videoUrl,
+      title: `${info.title} [${entry.lang}]`,
+      kind: 'subtitle',
+      formatLabel: `${entry.name} · ${formatName}`,
+      tag: tagFor(entry),
+      options: { skipDownload: true, subtitles: subtitleOptions([entry.key], settings.subtitleFormat) },
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div>
-        <h1 style={{ fontSize: '24px', fontWeight: 700, color: c.text, letterSpacing: '-0.01em' }}>字幕管理</h1>
-        <p style={{ fontSize: '13px', color: c.text2, marginTop: '4px' }}>下载和管理视频字幕</p>
+      <PageHeader title="字幕管理" subtitle="单独下载视频字幕，或设置下载视频时的字幕处理方式" />
+
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="输入视频链接，查看可用字幕..."
+            onKeyDown={(e) => e.key === 'Enter' && !isParsing && handleParse()}
+            style={{ ...inputStyle, flex: 1, height: '40px', padding: '0 16px' }} />
+          <button onClick={handleParse} disabled={isParsing || !url.trim()} style={primaryButtonStyle(isParsing || !url.trim(), 40)}>
+            {isParsing && <Spinner size={14} />}
+            {isParsing ? '解析中...' : '获取字幕'}
+          </button>
+        </div>
+        {error && <ErrorNotice error={error} fallbackTitle="获取字幕失败" />}
       </div>
 
       {/* 可用字幕 */}
-      <div style={{ background: c.bg, borderRadius: '12px', border: `1px solid ${c.border}`, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #F2F2F7' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 600, color: c.text }}>可用字幕</h3>
-          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 500, background: 'rgba(52,199,89,0.1)', color: '#34C759' }}>
-            {mockSubtitles.filter(s => s.available).length} 种语言
-          </span>
-        </div>
-        {mockSubtitles.map((sub, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 20px', borderBottom: i < mockSubtitles.length - 1 ? '1px solid #F2F2F7' : 'none' }}>
-            <div style={{ width: '32px', height: '32px', background: '#F2F2F7', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#AEAEB2" strokeWidth="1.5">
-                <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-              </svg>
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '13px', fontWeight: 500, color: c.text }}>{sub.lang}</div>
-              <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>{sub.name}</div>
-            </div>
-            <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 500, background: sub.type === '官方' ? 'rgba(0,113,227,0.1)' : '#F2F2F7', color: sub.type === '官方' ? c.accent : c.text2, flexShrink: 0 }}>
-              {sub.type}
-            </span>
-            <button disabled={!sub.available}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', height: '28px', padding: '0 10px', background: 'transparent', color: sub.available ? c.accent : c.text3, border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 500, cursor: sub.available ? 'pointer' : 'not-allowed', flexShrink: 0 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              下载
-            </button>
+      {info && (
+        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '16px 20px', borderBottom: `1px solid ${c.divider}` }}>
+            <h3 style={{ ...cardTitleStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{info.title}</h3>
+            <Badge color={c.success} background={c.successBg}>{official.length} 官方 · {auto.length} 自动</Badge>
           </div>
-        ))}
-      </div>
+          {visible.length === 0 ? (
+            <div style={{ padding: '40px 20px', textAlign: 'center', fontSize: '13px', color: c.text3 }}>该视频没有可用字幕</div>
+          ) : (
+            <div style={{ maxHeight: '360px', overflowY: 'auto' }}>
+              {visible.map((sub, i) => {
+                const task = taskFor(sub);
+                const active = task && isTaskActive(task);
+                return (
+                  <div key={sub.key} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 20px', borderBottom: i < visible.length - 1 ? `1px solid ${c.divider}` : 'none' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '13px', fontWeight: 500, color: c.text }}>{sub.name}</div>
+                      <div style={{ fontSize: '11px', color: c.text3, marginTop: '2px' }}>{sub.lang}</div>
+                    </div>
+                    <Badge color={sub.source === 'official' ? c.accent : c.text2} background={sub.source === 'official' ? c.accentBg : c.divider}>
+                      {sub.source === 'official' ? '官方' : '自动'}
+                    </Badge>
+                    {task?.status === 'completed' && <span style={{ fontSize: '12px', color: c.success }}>已下载</span>}
+                    {task?.status === 'error' && <span style={{ fontSize: '12px', color: c.error }}>失败</span>}
+                    <button disabled={active} onClick={() => download(sub)}
+                      style={{ ...linkButtonStyle, display: 'flex', alignItems: 'center', gap: '6px', color: active ? c.text3 : c.accent, cursor: active ? 'not-allowed' : 'pointer' }}>
+                      {active ? <Spinner size={14} /> : (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                      )}
+                      下载
+                    </button>
+                  </div>
+                );
+              })}
+              {(auto.length > auto.filter(isFeaturedAuto).length) && (
+                <div style={{ padding: '8px 20px', borderTop: `1px solid ${c.divider}` }}>
+                  <button onClick={() => setShowAllAuto(!showAllAuto)} style={linkButtonStyle}>
+                    {showAllAuto ? '收起自动翻译字幕' : `显示全部自动字幕（${auto.length}）`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <TaskList title="字幕任务" filter={(t) => t.kind === 'subtitle'} />
 
       {/* 字幕设置 */}
-      <div style={{ background: c.bg, borderRadius: '12px', border: `1px solid ${c.border}`, padding: '20px' }}>
-        <h3 style={{ fontSize: '15px', fontWeight: 600, color: c.text }}>字幕设置</h3>
-        <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: c.text, marginBottom: '6px' }}>输出格式</label>
-              <select style={{ width: '100%', height: '36px', padding: '0 12px', background: c.input, border: `1px solid ${c.inputBorder}`, borderRadius: '8px', fontSize: '13px', color: c.text, outline: 'none', cursor: 'pointer' }}>
-                <option>SRT</option><option>VTT</option><option>ASS</option><option>JSON3</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: c.text, marginBottom: '6px' }}>字幕语言</label>
-              <select style={{ width: '100%', height: '36px', padding: '0 12px', background: c.input, border: `1px solid ${c.inputBorder}`, borderRadius: '8px', fontSize: '13px', color: c.text, outline: 'none', cursor: 'pointer' }}>
-                <option>所有语言</option><option>中文</option><option>English</option><option>日本語</option>
-              </select>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '14px', borderTop: `1px solid #F2F2F7` }}>
-            <div style={{ flex: 1, marginRight: '16px' }}>
-              <div style={{ fontSize: '13px', fontWeight: 500, color: c.text }}>嵌入到视频</div>
-              <div style={{ fontSize: '12px', color: c.text2, marginTop: '2px' }}>下载后自动将字幕嵌入视频文件</div>
-            </div>
-            <button style={{ width: '44px', minWidth: '44px', maxWidth: '44px', height: '26px', minHeight: '26px', maxHeight: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0, padding: 0, appearance: 'none', background: '#D1D1D6' }}>
-              <span style={{ position: 'absolute', top: '2px', left: '2px', width: '22px', height: '22px', background: '#fff', borderRadius: '50%', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', transform: 'translateX(0)' }} />
-            </button>
-          </div>
+      <div style={cardStyle}>
+        <h3 style={cardTitleStyle}>字幕设置</h3>
+        <div style={{ marginTop: '16px' }}>
+          <label style={labelStyle}>输出格式</label>
+          <select value={settings.subtitleFormat} onChange={(e) => setSettings({ subtitleFormat: e.target.value })} style={selectStyle}>
+            {SUBTITLE_FORMATS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+          <p style={{ marginTop: '6px', fontSize: '11px', color: c.text3 }}>转换格式需要 ffmpeg；单独下载和下载视频时另存的字幕都使用此格式</p>
+        </div>
+        <div style={{ marginTop: '6px' }}>
+          <SwitchRow label="嵌入到视频" desc="下载视频时，将「下载」页勾选的字幕嵌入视频文件" last
+            checked={postProcessing.embedSubs} onChange={(on) => setPostProcessing({ embedSubs: on })} />
         </div>
       </div>
     </div>
