@@ -12,6 +12,7 @@
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter};
 
@@ -39,7 +40,18 @@ pub fn init(resources: PathBuf, data: PathBuf) {
         .ok()
         .and_then(|p| p.parent().map(Path::to_path_buf))
         .unwrap_or_default();
-    let _ = DIRS.set(Dirs { resources, bin, data: data.join("engine") });
+    let data = data.join("engine");
+    // 旧版本可能仍被上次运行中的进程使用，所以更新时不删，等到下次启动再清理
+    if let Some(current) = read_trimmed(&data.join("current")) {
+        remove_other_versions(&data, &current);
+    }
+    let _ = DIRS.set(Dirs { resources, bin, data });
+}
+
+/// xVideo 自带的 yt-dlp 插件目录（如抖音修补）
+pub fn plugin_dir() -> Option<PathBuf> {
+    let dir = dirs()?.resources.join("yt-dlp-plugins");
+    dir.is_dir().then_some(dir)
 }
 
 fn dirs() -> Option<&'static Dirs> {
@@ -225,7 +237,28 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// 下载官方最新引擎、校验 SHA256、解压并试运行，成功后启用
+static UPDATING: AtomicBool = AtomicBool::new(false);
+
+/// 更新期间置位，结束（含出错）时自动复位
+struct UpdateGuard;
+
+impl UpdateGuard {
+    fn acquire() -> Result<Self, String> {
+        UPDATING
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| UpdateGuard)
+            .map_err(|_| "引擎正在更新中".to_string())
+    }
+}
+
+impl Drop for UpdateGuard {
+    fn drop(&mut self) {
+        UPDATING.store(false, Ordering::Release);
+    }
+}
+
 pub async fn update(app: AppHandle, proxy: Option<String>) -> Result<String, String> {
+    let _guard = UpdateGuard::acquire()?;
     let data = dirs().ok_or("引擎目录未初始化")?.data.clone();
     let info = check_update(proxy.clone()).await?;
     if !info.update_available {
@@ -286,7 +319,6 @@ fn install(data: &Path, tag: &str, zip: &[u8]) -> Result<String, String> {
     let _ = std::fs::remove_dir_all(&target);
     std::fs::rename(&staging, &target).map_err(|e| e.to_string())?;
     std::fs::write(data.join("current"), tag).map_err(|e| e.to_string())?;
-    remove_other_versions(data, tag);
     Ok(version)
 }
 
@@ -307,13 +339,15 @@ fn unzip(_zip: &Path, _dest: &Path) -> Result<(), String> {
     Err("当前平台暂不支持在线更新引擎".into())
 }
 
+/// 删除当前版本以外的引擎目录，以及中断更新留下的 .partial / .zip
 fn remove_other_versions(data: &Path, keep: &str) {
-    if let Ok(entries) = std::fs::read_dir(data) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() && entry.file_name() != keep {
-                let _ = std::fs::remove_dir_all(path);
-            }
+    let Ok(entries) = std::fs::read_dir(data) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() && entry.file_name() != keep {
+            let _ = std::fs::remove_dir_all(path);
+        } else if path.extension().is_some_and(|e| e == "zip") {
+            let _ = std::fs::remove_file(path);
         }
     }
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../stores/useAppStore';
 import { networkOptions, parseVideo } from '../services/ytdlp';
 import { startTask } from '../services/downloads';
@@ -15,6 +16,7 @@ import {
 } from '../lib/formats';
 import { isFeaturedAuto, listSubtitles, subtitleOptions } from '../lib/subtitles';
 import { extractUrl } from '../lib/url';
+import { videoKey } from '../lib/video';
 import type { BatchItem, Format, PostProcessingOptions, VideoInfo } from '../types';
 
 const AUDIO_TARGETS = [
@@ -115,6 +117,7 @@ function PlaylistCard({ info }: { info: VideoInfo }) {
       url: (e.url || e.webpage_url)!,
       status: 'ready',
       title: e.title,
+      videoKey: videoKey(e.ie_key, e.id),
     }));
     setBatchUrls(items.map((i) => i.url).join('\n'));
     setBatchItems(items);
@@ -150,14 +153,23 @@ function PlaylistCard({ info }: { info: VideoInfo }) {
 }
 
 export function DownloadPage() {
+  // 按需订阅：下载进度每 0.5 秒更新一次 tasks，不应让整页随之重绘
   const {
     currentUrl, setCurrentUrl, videoInfo, setVideoInfo,
     isParsing, setIsParsing, parseError, setParseError,
     formatTab, setFormatTab, selection, setSelection,
     audioTarget, setAudioTarget, subtitleKeys, setSubtitleKeys,
     postProcessing, setPostProcessing,
-    settings, setSettings, environment, tasks,
-  } = useAppStore();
+    settings, setSettings, environment,
+  } = useAppStore(useShallow((s) => ({
+    currentUrl: s.currentUrl, setCurrentUrl: s.setCurrentUrl, videoInfo: s.videoInfo, setVideoInfo: s.setVideoInfo,
+    isParsing: s.isParsing, setIsParsing: s.setIsParsing, parseError: s.parseError, setParseError: s.setParseError,
+    formatTab: s.formatTab, setFormatTab: s.setFormatTab, selection: s.selection, setSelection: s.setSelection,
+    audioTarget: s.audioTarget, setAudioTarget: s.setAudioTarget, subtitleKeys: s.subtitleKeys, setSubtitleKeys: s.setSubtitleKeys,
+    postProcessing: s.postProcessing, setPostProcessing: s.setPostProcessing,
+    settings: s.settings, setSettings: s.setSettings, environment: s.environment,
+  })));
+  const hasTasks = useAppStore((s) => s.tasks.length > 0);
   const [showAllAuto, setShowAllAuto] = useState(false);
   const { toast, show } = useToast();
 
@@ -201,6 +213,7 @@ export function DownloadPage() {
     startTask({
       url: videoInfo.webpage_url || extractUrl(currentUrl),
       title: videoInfo.title,
+      videoKey: videoKey(videoInfo.extractor_key, videoInfo.id),
       kind: isVideo ? 'video' : 'audio',
       formatLabel: mediaLabel,
       sizeLabel: formatSize(selectedFormat),
@@ -387,7 +400,7 @@ export function DownloadPage() {
       <TaskList />
 
       {/* Empty State */}
-      {!videoInfo && !isParsing && tasks.length === 0 && (
+      {!videoInfo && !isParsing && !hasTasks && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', textAlign: 'center' }}>
           <div style={{ width: '64px', height: '64px', background: c.divider, borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#AEAEB2" strokeWidth="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>

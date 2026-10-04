@@ -17,6 +17,8 @@ export const c = {
   errorBg: 'rgba(255,59,48,0.08)',
   warning: '#FF9500',
   warningBg: 'rgba(255,149,0,0.1)',
+  sidebar: '#F9F9FB',
+  navText: '#636366',
 };
 
 export const cardStyle: CSSProperties = { background: c.bg, borderRadius: '12px', border: `1px solid ${c.border}`, padding: '20px' };

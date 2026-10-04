@@ -1,6 +1,6 @@
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore, DEFAULT_OUTPUT_PATH, DEFAULT_FILENAME_TEMPLATE } from '../stores/useAppStore';
-import { networkOptions, startDownload } from './ytdlp';
+import { cancelDownload, networkOptions, startDownload } from './ytdlp';
 import { formatBytes } from '../lib/formats';
 import type { DownloadRequest, PostProcessingOptions, TaskKind, TaskProgress, TaskResult } from '../types';
 
@@ -22,11 +22,14 @@ export interface TaskSpec {
   formatLabel: string;
   sizeLabel?: string;
   tag?: string;
+  videoKey?: string;
   options: Pick<DownloadRequest, 'format' | 'extractAudio' | 'mergeFormat' | 'skipDownload' | 'subtitles'>;
   postProcessing?: PostProcessingOptions;
 }
 
 const waiters = new Map<string, (result: TaskResult) => void>();
+// Cancels requested before the backend registered the process (still 'starting')
+const pendingCancels = new Set<string>();
 let taskCounter = 0;
 
 function toProgress(raw: RawProgress): TaskProgress {
@@ -60,6 +63,7 @@ function finishTask(result: TaskResult) {
       id: task.id,
       title: task.title,
       url: task.url,
+      videoKey: task.videoKey,
       kind: task.kind,
       format: task.formatLabel,
       size: result.totalBytes ? formatBytes(result.totalBytes) : task.sizeLabel,
@@ -108,6 +112,7 @@ export function startTask(spec: TaskSpec): { taskId: string; done: Promise<TaskR
     formatLabel: spec.formatLabel,
     sizeLabel: spec.sizeLabel ?? '-',
     tag: spec.tag,
+    videoKey: spec.videoKey,
     status: 'starting',
     progress: null,
     outputDir,
@@ -127,9 +132,25 @@ export function startTask(spec: TaskSpec): { taskId: string; done: Promise<TaskR
     filenameTemplate: settings.filenameTemplate.trim() || DEFAULT_FILENAME_TEMPLATE,
     postProcessing: spec.postProcessing ?? state.postProcessing,
     network: networkOptions(settings),
+  }).then(() => {
+    if (pendingCancels.delete(taskId)) cancelDownload(taskId).catch(() => {});
   }).catch((error) => {
     finishTask({ taskId, status: 'error', error: String(error), files: [], totalBytes: null });
   });
 
   return { taskId, done };
+}
+
+/** Cancel a task; if its process is not registered yet, cancel as soon as it is */
+export async function cancelTask(taskId: string): Promise<void> {
+  const task = useAppStore.getState().tasks.find((t) => t.id === taskId);
+  if (task?.status === 'starting') {
+    pendingCancels.add(taskId);
+  }
+  try {
+    await cancelDownload(taskId);
+    pendingCancels.delete(taskId);
+  } catch {
+    // Not running yet (handled by pendingCancels) or already finished
+  }
 }

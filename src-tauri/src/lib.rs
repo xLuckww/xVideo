@@ -65,6 +65,9 @@ async fn check_engine_update(proxy: Option<String>) -> Result<engine::UpdateInfo
 
 #[tauri::command]
 async fn update_engine(app: tauri::AppHandle, proxy: Option<String>) -> Result<String, String> {
+    if app.state::<DownloadManager>().is_busy() {
+        return Err("有任务正在下载，完成后才能更新引擎".into());
+    }
     engine::update(app, proxy).await
 }
 
@@ -142,7 +145,6 @@ async fn open_privacy_settings() -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(DownloadManager::default())
@@ -150,9 +152,8 @@ pub fn run() {
             if let Ok(dir) = app.path().app_log_dir() {
                 ytdlp::set_log_dir(dir);
             }
-            let resources = app.path().resource_dir()?;
-            ytdlp::set_plugin_dir(resources.join("yt-dlp-plugins"));
-            engine::init(resources, app.path().app_data_dir()?);
+            cookies::cleanup_stale();
+            engine::init(app.path().resource_dir()?, app.path().app_data_dir()?);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

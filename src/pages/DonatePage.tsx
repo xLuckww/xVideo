@@ -1,4 +1,4 @@
-const c = { bg: '#fff', border: '#E5E5EA', text: '#1D1D1F', text2: '#86868B', text3: '#AEAEB2' };
+import { c } from '../components/common';
 
 export function DonatePage() {
   return (
@@ -11,13 +11,13 @@ export function DonatePage() {
       <div style={{ background: c.bg, borderRadius: '12px', border: `1px solid ${c.border}`, padding: '32px', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', width: '100%', maxWidth: '600px' }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ width: '100%', background: '#F5F5F7', borderRadius: '16px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+            <div style={{ width: '100%', background: c.input, borderRadius: '16px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
               <img src="/donate/alipay.png" alt="支付宝" style={{ width: '100%', height: 'auto', objectFit: 'contain' }} />
             </div>
             <p style={{ fontSize: '14px', color: c.text2, marginTop: '12px', fontWeight: 500 }}>支付宝</p>
           </div>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ width: '100%', background: '#F5F5F7', borderRadius: '16px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+            <div style={{ width: '100%', background: c.input, borderRadius: '16px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
               <img src="/donate/wechat.png" alt="微信支付" style={{ width: '100%', height: 'auto', objectFit: 'contain' }} />
             </div>
             <p style={{ fontSize: '14px', color: c.text2, marginTop: '12px', fontWeight: 500 }}>微信支付</p>

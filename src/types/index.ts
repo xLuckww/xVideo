@@ -25,6 +25,7 @@ export interface VideoInfo {
 
 export interface PlaylistEntry {
   id?: string;
+  ie_key?: string;
   title?: string;
   url?: string;
   webpage_url?: string;
@@ -119,6 +120,8 @@ export interface DownloadTask {
   sizeLabel: string;
   /** Free-form marker so a page can find the tasks it started */
   tag?: string;
+  /** See lib/video.ts */
+  videoKey?: string;
   status: TaskStatus;
   progress: TaskProgress | null;
   outputDir: string;
@@ -180,6 +183,8 @@ export interface BatchItem {
   title?: string;
   error?: string;
   taskId?: string;
+  /** See lib/video.ts */
+  videoKey?: string;
 }
 
 // History record
@@ -187,6 +192,8 @@ export interface HistoryRecord {
   id: string;
   title: string;
   url: string;
+  /** See lib/video.ts */
+  videoKey?: string;
   kind?: TaskKind;
   format: string;
   size: string;

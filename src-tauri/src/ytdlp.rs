@@ -46,7 +46,7 @@ pub fn command() -> Command {
     cmd.args(["--ignore-config", "--no-update"]);
 
     cmd.arg("--no-plugin-dirs");
-    if let Some(dir) = PLUGIN_DIR.get() {
+    if let Some(dir) = engine::plugin_dir() {
         cmd.arg("--plugin-dirs").arg(dir);
     }
     if let Some(ffmpeg) = engine::ffmpeg() {
@@ -102,32 +102,42 @@ pub fn summarize_error<S: AsRef<str>>(lines: &[S]) -> String {
 }
 
 static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
-static PLUGIN_DIR: OnceLock<PathBuf> = OnceLock::new();
-
-/// xVideo 自带的 yt-dlp 插件目录（如抖音修补），随应用资源打包
-pub fn set_plugin_dir(dir: PathBuf) {
-    if dir.is_dir() {
-        let _ = PLUGIN_DIR.set(dir);
-    }
-}
+const MAX_LOG_BYTES: u64 = 1024 * 1024;
 
 pub fn set_log_dir(dir: PathBuf) {
     let _ = std::fs::create_dir_all(&dir);
     let _ = LOG_DIR.set(dir);
 }
 
-/// 把一次 yt-dlp 调用的完整输出写入日志目录，便于排查（覆盖同名旧日志）
-pub fn write_log<S: AsRef<str>>(name: &str, args: &[String], lines: &[S]) {
-    let Some(dir) = LOG_DIR.get() else { return };
+fn log_entry<S: AsRef<str>>(args: &[String], lines: &[S]) -> String {
     let mut content = format!("args: {:?}\n\n", args);
     for line in lines {
         content.push_str(line.as_ref());
         content.push('\n');
     }
-    let _ = std::fs::write(dir.join(name), content);
+    content
 }
 
-fn non_empty(s: &Option<String>) -> Option<&str> {
+/// 把一次 yt-dlp 调用的完整输出写入日志目录，便于排查（覆盖同名旧日志）
+pub fn write_log<S: AsRef<str>>(name: &str, args: &[String], lines: &[S]) {
+    let Some(dir) = LOG_DIR.get() else { return };
+    let _ = std::fs::write(dir.join(name), log_entry(args, lines));
+}
+
+/// 追加写入日志（并发任务各自一段），超过 1MB 时轮换为 .1
+pub fn append_log<S: AsRef<str>>(name: &str, header: &str, args: &[String], lines: &[S]) {
+    use std::io::Write;
+    let Some(dir) = LOG_DIR.get() else { return };
+    let path = dir.join(name);
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_LOG_BYTES) {
+        let _ = std::fs::rename(&path, dir.join(format!("{name}.1")));
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = write!(file, "===== {header} =====\n{}\n", log_entry(args, lines));
+    }
+}
+
+pub(crate) fn non_empty(s: &Option<String>) -> Option<&str> {
     s.as_deref().map(str::trim).filter(|s| !s.is_empty())
 }
 

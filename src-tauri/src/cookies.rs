@@ -95,6 +95,27 @@ pub fn find_cookie_db(browser_dir: &Path) -> Option<(String, PathBuf)> {
         .max_by_key(|(_, db)| mtime(db))
 }
 
+const TEMP_PREFIX: &str = "xvideo-cookies-";
+
+/// 清理异常退出时残留的临时 Cookie 库。
+/// yt-dlp 只在启动时读取一次 Cookie 库，超过 10 分钟的副本必然已不再使用，
+/// 这样也不会误删同时运行的另一个 xVideo 实例刚创建的副本。
+pub fn cleanup_stale() {
+    const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    for entry in entries.flatten() {
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > STALE_AFTER);
+        if stale && entry.file_name().to_string_lossy().starts_with(TEMP_PREFIX) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 /// 复制主 Cookie 库到临时目录，返回传给 `--cookies-from-browser` 的 profile 路径和目录守卫。
 /// 无法准备时返回 None，调用方回退为让 yt-dlp 自行查找。
 pub fn prepare_profile(browser: &str) -> Option<(PathBuf, TempDir)> {
@@ -104,7 +125,7 @@ pub fn prepare_profile(browser: &str) -> Option<(PathBuf, TempDir)> {
     let (profile, db) = find_cookie_db(&dir)?;
 
     let root = std::env::temp_dir().join(format!(
-        "xvideo-cookies-{}-{}",
+        "{TEMP_PREFIX}{}-{}",
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::Relaxed)
     ));

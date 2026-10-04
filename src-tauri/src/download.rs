@@ -5,7 +5,7 @@
 //!   XVS <stage>  阶段切换（downloading / processing）
 //!   XVF "path"   最终输出文件
 
-use crate::ytdlp::{self, NetworkOptions};
+use crate::ytdlp::{self, non_empty, NetworkOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -61,10 +61,6 @@ pub struct DownloadRequest {
     pub post_processing: PostProcessingOptions,
     #[serde(default)]
     pub network: NetworkOptions,
-}
-
-fn non_empty(s: &Option<String>) -> Option<&str> {
-    s.as_deref().map(str::trim).filter(|s| !s.is_empty())
 }
 
 pub fn build_args(req: &DownloadRequest, output_dir: &Path) -> (Vec<String>, Option<crate::cookies::TempDir>) {
@@ -152,6 +148,10 @@ pub struct DownloadManager {
 }
 
 impl DownloadManager {
+    pub fn is_busy(&self) -> bool {
+        !self.running.lock().unwrap().is_empty()
+    }
+
     pub fn kill_all(&self) {
         let pids: Vec<u32> = self.running.lock().unwrap().values().copied().collect();
         for pid in pids {
@@ -283,7 +283,7 @@ pub fn start(app: &AppHandle, req: DownloadRequest) -> Result<(), String> {
                 Ok(s) if s.success() => ("completed", None),
                 Ok(_) => {
                     let tail: Vec<String> = tail.lock().unwrap().iter().cloned().collect();
-                    ytdlp::write_log("download-error.log", &args, &tail);
+                    ytdlp::append_log("download-errors.log", &format!("task {task_id}"), &args, &tail);
                     ("error", Some(ytdlp::summarize_error(&tail)))
                 }
                 Err(e) => ("error", Some(format!("进程异常: {e}"))),

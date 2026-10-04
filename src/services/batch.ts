@@ -1,7 +1,8 @@
 import { useAppStore } from '../stores/useAppStore';
-import { cancelDownload, networkOptions, parseVideo } from './ytdlp';
-import { startTask } from './downloads';
+import { networkOptions, parseVideo } from './ytdlp';
+import { cancelTask, startTask } from './downloads';
 import { presetSelector, PRESET_LABELS } from '../lib/formats';
+import { videoKey } from '../lib/video';
 import type { BatchItem } from '../types';
 
 const PARSE_CONCURRENCY = 3;
@@ -32,14 +33,16 @@ export async function parseBatch(urls: string[]) {
       const info = await parseVideo(item.url, network, true);
       if (info._type === 'playlist') {
         const entries = (info.entries ?? [])
-          .map((e) => ({ url: e.url || e.webpage_url, title: e.title }))
-          .filter((e): e is { url: string; title: string | undefined } => !!e.url);
+          .map((e) => ({ url: e.url || e.webpage_url, title: e.title, key: videoKey(e.ie_key, e.id) }))
+          .filter((e) => !!e.url);
         const expanded = entries.length
-          ? entries.map((e) => newItem(e.url, { status: 'ready', title: e.title }))
+          ? entries.map((e) => newItem(e.url!, { status: 'ready', title: e.title, videoKey: e.key }))
           : [{ ...item, status: 'error' as const, error: '播放列表为空' }];
         useAppStore.getState().setBatchItems((prev) => prev.flatMap((i) => (i.id === item.id ? expanded : [i])));
       } else {
-        useAppStore.getState().updateBatchItem(item.id, { status: 'ready', title: info.title });
+        useAppStore.getState().updateBatchItem(item.id, {
+          status: 'ready', title: info.title, videoKey: videoKey(info.extractor_key, info.id),
+        });
       }
     } catch (error) {
       useAppStore.getState().updateBatchItem(item.id, { status: 'error', error: String(error) });
@@ -51,14 +54,17 @@ export async function runBatch() {
   const store = useAppStore.getState();
   if (store.batchRunning) return;
   const { preset, concurrency, skipDownloaded, continueOnError } = store.batchOptions;
-  const downloaded = new Set(store.history.filter((h) => h.kind !== 'subtitle').map((h) => h.url));
+  // 同一视频可能以不同链接形式出现，按链接或视频标识任一匹配即视为已下载
+  const media = store.history.filter((h) => h.kind !== 'subtitle');
+  const downloaded = new Set([...media.map((h) => h.url), ...media.flatMap((h) => (h.videoKey ? [h.videoKey] : []))]);
+  const isDownloaded = (i: BatchItem) => downloaded.has(i.url) || (!!i.videoKey && downloaded.has(i.videoKey));
 
   stopRequested = false;
   let failed = false;
   store.setBatchRunning(true);
   store.setBatchItems((prev) => prev.map((i) => {
     if (i.status !== 'ready' && i.status !== 'cancelled') return i;
-    return skipDownloaded && downloaded.has(i.url)
+    return skipDownloaded && isDownloaded(i)
       ? { ...i, status: 'skipped' }
       : { ...i, status: 'queued', error: undefined };
   }));
@@ -73,6 +79,7 @@ export async function runBatch() {
       const { taskId, done } = startTask({
         url: item.url,
         title: item.title || item.url,
+        videoKey: item.videoKey,
         kind: preset === 'audio' ? 'audio' : 'video',
         formatLabel: preset === 'audio' ? `仅音频 → ${store.settings.defaultAudioFormat.toUpperCase()}` : PRESET_LABELS[preset],
         options: preset === 'audio'
@@ -102,5 +109,5 @@ export async function stopBatch() {
   const { batchItems } = useAppStore.getState();
   await Promise.all(batchItems
     .filter((i) => i.status === 'downloading' && i.taskId)
-    .map((i) => cancelDownload(i.taskId!).catch(() => {})));
+    .map((i) => cancelTask(i.taskId!)));
 }

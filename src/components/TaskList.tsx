@@ -1,5 +1,6 @@
 import { useAppStore, isTaskActive } from '../stores/useAppStore';
-import { cancelDownload, openFile, openFolder } from '../services/ytdlp';
+import { openFile, openFolder } from '../services/ytdlp';
+import { cancelTask } from '../services/downloads';
 import { formatBytes, formatEta, formatSpeed } from '../lib/formats';
 import { c, cardStyle, cardTitleStyle, linkButtonStyle, Badge, ProgressLine } from './common';
 import { ErrorInline } from './ErrorNotice';
@@ -47,7 +48,7 @@ function TaskRow({ task, last }: { task: DownloadTask; last: boolean }) {
         </div>
         <Badge color={badge.color} background={badge.background}>{badge.label}</Badge>
         {active ? (
-          <button onClick={() => cancelDownload(task.id).catch(() => {})} style={{ ...linkButtonStyle, color: c.error }}>取消</button>
+          <button onClick={() => cancelTask(task.id)} style={{ ...linkButtonStyle, color: c.error }}>取消</button>
         ) : (
           <>
             {task.status === 'completed' && file && task.kind !== 'subtitle' && (

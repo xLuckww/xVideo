@@ -81,6 +81,8 @@ interface AppState {
 }
 
 export const DEFAULT_OUTPUT_PATH = '~/Downloads/xVideo';
+// localStorage 容量有限（约 5MB），只保留最近的记录
+const MAX_HISTORY = 1000;
 export const DEFAULT_FILENAME_TEMPLATE = '%(title)s.%(ext)s';
 
 export const defaultSettings: AppSettings = {
@@ -182,7 +184,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     set((state) => ({ batchOptions: { ...state.batchOptions, ...options } })),
   setSubtitleUrl: (url) => set({ subtitleUrl: url }),
   setSubtitleInfo: (info) => set({ subtitleInfo: info }),
-  addHistory: (record) => set((state) => ({ history: [record, ...state.history] })),
+  addHistory: (record) => set((state) => ({ history: [record, ...state.history].slice(0, MAX_HISTORY) })),
   removeHistory: (id) => set((state) => ({ history: state.history.filter((r) => r.id !== id) })),
   clearHistory: () => set({ history: [] }),
   setSettings: (settings) => set((state) => ({ settings: { ...state.settings, ...settings } })),

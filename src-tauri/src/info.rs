@@ -16,7 +16,7 @@ const FORMAT_KEYS: &[&str] = &[
     "vcodec", "acodec", "abr", "vbr", "tbr", "filesize", "filesize_approx",
     "format", "dynamic_range", "language",
 ];
-const ENTRY_KEYS: &[&str] = &["id", "title", "url", "webpage_url", "duration", "uploader", "channel"];
+const ENTRY_KEYS: &[&str] = &["id", "ie_key", "title", "url", "webpage_url", "duration", "uploader", "channel"];
 const SUBTITLE_KEYS: &[&str] = &["ext", "name"];
 
 fn pick(src: &Value, keys: &[&str]) -> Map<String, Value> {
@@ -105,6 +105,6 @@ mod tests {
         });
         let out = project(&info);
         assert_eq!(out["entries"].as_array().unwrap().len(), 1);
-        assert_eq!(out["entries"][0], json!({"id": "1", "url": "https://a", "title": "A"}));
+        assert_eq!(out["entries"][0], json!({"id": "1", "ie_key": "Youtube", "url": "https://a", "title": "A"}));
     }
 }
